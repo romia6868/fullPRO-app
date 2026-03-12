@@ -82,13 +82,18 @@ def load_model():
 
     model(np.zeros((1,128,128,3)))
 
-    model.load_weights(
-        "face_encoder.weights.h5",
-        by_name=True,
-        skip_mismatch=True
-    )
+    weights_path = "face_encoder.weights.h5"
 
-    return model
+    if not os.path.exists(weights_path):
+        st.error("קובץ המשקלים לא נמצא בפרויקט")
+        st.stop()
+
+    try:
+        model.load_weights(weights_path)
+    except:
+        model.load_weights(weights_path, by_name=True, skip_mismatch=True)
+
+    return modelreturn model
 
 model = load_model()
 st.success("המודל נטען")
