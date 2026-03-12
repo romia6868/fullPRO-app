@@ -72,18 +72,12 @@ def build_pro_embedding():
 # -------------------------
 # טעינת מודל
 # -------------------------
-# -------------------------
-# טעינת מודל
-# -------------------------
-st.write(os.listdir())
-# -------------------------
-# טעינת מודל
-# -------------------------
+@st.cache_resource
 def load_model():
 
     model = build_pro_embedding()
 
-    # בניית המודל
+    # בניית המודל בפועל
     model(np.zeros((1,128,128,3)))
 
     # טעינת משקולות
@@ -95,9 +89,9 @@ def load_model():
 
     return model
 
-
 model = load_model()
 st.success("המודל נטען בהצלחה")
+
 # -------------------------
 # preprocessing
 # -------------------------
@@ -115,7 +109,7 @@ def cosine_distance(a,b):
     return 1 - np.dot(a,b)
 
 # -------------------------
-# טעינת embeddings (עם ממוצע)
+# טעינת embeddings
 # -------------------------
 @st.cache_data
 def load_reference_embeddings():
@@ -146,21 +140,23 @@ def load_reference_embeddings():
 
                     student_embeddings.append(emb)
 
-            if len(student_embeddings) > 0:
+            if student_embeddings:
 
-                mean_embedding = np.mean(student_embeddings, axis=0)
-                embeddings[student] = mean_embedding
+                embeddings[student] = np.mean(student_embeddings, axis=0)
 
     return embeddings
 
 reference_embeddings = load_reference_embeddings()
-
 st.info(f"נמצאו {len(reference_embeddings)} תלמידים במאגר")
 
 # -------------------------
-# Face detector
+# טעינת Face Detector
 # -------------------------
-detector = MTCNN()
+@st.cache_resource
+def load_detector():
+    return MTCNN()
+
+detector = load_detector()
 
 # -------------------------
 # זיהוי פנים
@@ -168,6 +164,15 @@ detector = MTCNN()
 def extract_faces(image):
 
     img = np.array(image)
+
+    # הקטנת תמונה גדולה מדי
+    max_size = 800
+    h, w = img.shape[:2]
+
+    if max(h, w) > max_size:
+        scale = max_size / max(h, w)
+        img = cv2.resize(img, (int(w*scale), int(h*scale)))
+
     results = detector.detect_faces(img)
 
     faces = []
@@ -180,6 +185,9 @@ def extract_faces(image):
         y = max(0,y)
 
         face = img[y:y+h, x:x+w]
+
+        if face.size == 0:
+            continue
 
         face_img = Image.fromarray(face)
 
@@ -210,7 +218,7 @@ with st.sidebar:
         st.write(s)
 
 # -------------------------
-# העלאת תמונה
+# העלאת תמונת כיתה
 # -------------------------
 st.subheader("העלי תמונת כיתה")
 
@@ -268,9 +276,7 @@ if st.button("בדוק נוכחות"):
             "box": box
         })
 
-    # -------------------------
     # ציור bounding boxes
-    # -------------------------
     img_draw = original_img.copy()
 
     for face in recognized_faces:
@@ -303,9 +309,7 @@ if st.button("בדוק נוכחות"):
         use_column_width=True
     )
 
-    # -------------------------
     # חסרים
-    # -------------------------
     missing_students = [
         s for s in STUDENT_ROSTER
         if s not in present_students
