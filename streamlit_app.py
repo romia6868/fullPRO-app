@@ -99,7 +99,11 @@ def preprocess_image(img):
 # cosine distance
 # -------------------------
 def cosine_distance(a,b):
-    return 1 - np.dot(a,b) / (np.linalg.norm(a)*np.linalg.norm(b))
+
+    a = a / np.linalg.norm(a)
+    b = b / np.linalg.norm(b)
+
+    return 1 - np.dot(a,b)
 
 # -------------------------
 # טעינת embeddings
@@ -130,6 +134,8 @@ def load_reference_embeddings():
                         preprocess_image(img),
                         verbose=0
                     )[0]
+
+                    emb = emb / np.linalg.norm(emb)
 
                     student_embeddings.append(emb)
 
@@ -205,7 +211,7 @@ with st.sidebar:
         "Similarity Threshold",
         0.0,
         1.0,
-        0.18
+        0.14
     )
 
     st.write("תלמידים בכיתה")
@@ -252,19 +258,33 @@ if st.button("בדוק נוכחות"):
             verbose=0
         )[0]
 
-        best_name = None
-        best_dist = 1.0
+        emb = emb / np.linalg.norm(emb)
+
+        distances = []
 
         for name, ref_embs in reference_embeddings.items():
 
             for ref_emb in ref_embs:
 
-                dist = cosine_distance(emb,ref_emb)
+                dist = cosine_distance(emb, ref_emb)
 
-                if dist < threshold and dist < best_dist:
+                distances.append((name, dist))
 
-                    best_dist = dist
-                    best_name = name
+        distances.sort(key=lambda x: x[1])
+
+        top_matches = distances[:5]
+
+        votes = {}
+
+        for name, dist in top_matches:
+
+            if dist < threshold:
+                votes[name] = votes.get(name,0) + 1
+
+        if votes:
+            best_name = max(votes, key=votes.get)
+        else:
+            best_name = None
 
         if best_name and best_name not in present_students:
             present_students[best_name] = img
@@ -279,6 +299,7 @@ if st.button("בדוק נוכחות"):
     for face in recognized_faces:
 
         x,y,w,h = face["box"]
+
         name = face["name"] if face["name"] else "Unknown"
 
         cv2.rectangle(img_draw,(x,y),(x+w,y+h),(0,255,0),2)
