@@ -45,7 +45,7 @@ class L2Normalize(tf.keras.layers.Layer):
 def build_pro_embedding():
 
     base_model = MobileNetV2(
-        input_shape=(128,128,3),
+        input_shape=(224,224,3),
         include_top=False,
         weights="imagenet"
     )
@@ -73,8 +73,7 @@ def build_pro_embedding():
 def load_model():
 
     model = build_pro_embedding()
-
-    model(np.zeros((1,128,128,3)))
+    model(np.zeros((1,224,224,3)))
 
     model.load_weights(
         "face_encoder.weights.h5",
@@ -91,17 +90,14 @@ model = load_model()
 # -------------------------
 def preprocess_image(img):
 
-    img = img.convert("RGB").resize((128,128))
-
+    img = img.convert("RGB").resize((224,224))
     arr = np.array(img).astype(np.float32) / 255.0
-
     return np.expand_dims(arr, axis=0)
 
 # -------------------------
 # cosine distance
 # -------------------------
 def cosine_distance(a,b):
-
     return 1 - np.dot(a,b) / (np.linalg.norm(a)*np.linalg.norm(b))
 
 # -------------------------
@@ -150,10 +146,36 @@ st.info(f"נמצאו {len(reference_embeddings)} תלמידים במאגר")
 # -------------------------
 @st.cache_resource
 def load_face_detector():
-
     return MTCNN()
 
 face_detector = load_face_detector()
+
+# -------------------------
+# יישור פנים לפי עיניים
+# -------------------------
+def align_face(img, left_eye, right_eye):
+
+    left_eye = np.array(left_eye)
+    right_eye = np.array(right_eye)
+
+    dy = right_eye[1] - left_eye[1]
+    dx = right_eye[0] - left_eye[0]
+
+    angle = np.degrees(np.arctan2(dy,dx))
+
+    eyes_center = ((left_eye[0] + right_eye[0]) // 2,
+                   (left_eye[1] + right_eye[1]) // 2)
+
+    M = cv2.getRotationMatrix2D(eyes_center, angle, 1)
+
+    aligned = cv2.warpAffine(
+        img,
+        M,
+        (img.shape[1], img.shape[0]),
+        flags=cv2.INTER_CUBIC
+    )
+
+    return aligned
 
 # -------------------------
 # חיתוך פנים
@@ -170,11 +192,12 @@ def extract_faces(image):
     for det in detections:
 
         x,y,w,h = det["box"]
+        keypoints = det["keypoints"]
 
         x = max(0,x)
         y = max(0,y)
 
-        pad = int(0.2*w)
+        pad = int(0.4*w)
 
         x = max(0,x-pad)
         y = max(0,y-pad)
@@ -187,7 +210,13 @@ def extract_faces(image):
         if face.size == 0:
             continue
 
-        face = cv2.resize(face,(128,128))
+        face = align_face(
+            face,
+            keypoints["left_eye"],
+            keypoints["right_eye"]
+        )
+
+        face = cv2.resize(face,(224,224))
 
         face_img = Image.fromarray(face)
 
@@ -209,7 +238,7 @@ with st.sidebar:
         "Similarity Threshold",
         0.0,
         1.0,
-        0.22
+        0.18
     )
 
     st.write("תלמידים בכיתה")
@@ -271,7 +300,6 @@ if st.button("בדוק נוכחות"):
                     best_name = name
 
         if best_name and best_name not in present_students:
-
             present_students[best_name] = img
 
         recognized_faces.append({
