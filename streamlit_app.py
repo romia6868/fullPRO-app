@@ -7,6 +7,7 @@ import numpy as np
 import os
 import zipfile
 import cv2
+from retinaface import RetinaFace
 
 st.set_page_config(page_title="מערכת נוכחות חכמה", layout="wide")
 st.title("📸 מערכת נוכחות חכמה")
@@ -75,8 +76,7 @@ st.success("המודל נטען בהצלחה")
 
 def preprocess_image(img):
 
-    img = img.convert("RGB")
-    img = img.resize((128,128))
+    img = img.convert("RGB").resize((128,128))
 
     arr = np.array(img).astype(np.float32) / 255.0
 
@@ -128,70 +128,42 @@ reference_embeddings = load_reference_embeddings()
 st.info(f"נמצאו {len(reference_embeddings)} תלמידים במאגר")
 
 
-@st.cache_resource
-def load_face_detector():
-
-    detector = cv2.CascadeClassifier(
-        cv2.data.haarcascades + "haarcascade_frontalface_default.xml"
-    )
-
-    return detector
-
-
-face_detector = load_face_detector()
-
-
 def extract_faces(image):
 
     image = image.convert("RGB")
     img = np.array(image)
 
-    max_size = 900
-    h, w = img.shape[:2]
-
-    if max(h, w) > max_size:
-
-        scale = max_size / max(h, w)
-
-        img = cv2.resize(
-            img,
-            (int(w*scale), int(h*scale))
-        )
-
-    gray = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
-
-    detections = face_detector.detectMultiScale(
-        gray,
-        scaleFactor=1.15,
-        minNeighbors=6,
-        minSize=(60,60)
-    )
-
     faces = []
 
-    for (x,y,w,h) in detections:
+    detections = RetinaFace.detect_faces(img)
 
-        pad = int(w * 0.25)
+    if isinstance(detections, dict):
 
-        x1 = max(0, x - pad)
-        y1 = max(0, y - pad)
+        for face in detections.values():
 
-        x2 = min(img.shape[1], x + w + pad)
-        y2 = min(img.shape[0], y + h + pad)
+            x1, y1, x2, y2 = face["facial_area"]
 
-        face = img[y1:y2, x1:x2]
+            w = x2 - x1
+            h = y2 - y1
 
-        if face.size == 0:
-            continue
+            pad = int(w * 0.25)
 
-        face = cv2.resize(face,(128,128))
+            x1 = max(0, x1 - pad)
+            y1 = max(0, y1 - pad)
+            x2 = min(img.shape[1], x2 + pad)
+            y2 = min(img.shape[0], y2 + pad)
 
-        face_img = Image.fromarray(face)
+            face_img = img[y1:y2, x1:x2]
 
-        faces.append({
-            "face": face_img,
-            "box": (x,y,w,h)
-        })
+            if face_img.size == 0:
+                continue
+
+            face_img = cv2.resize(face_img,(128,128))
+
+            faces.append({
+                "face": Image.fromarray(face_img),
+                "box": (x1,y1,w,h)
+            })
 
     return faces, img
 
@@ -314,7 +286,6 @@ if st.button("בדוק נוכחות"):
         for i,(name,img) in enumerate(present_students.items()):
 
             with cols[i % 3]:
-
                 st.write(f"**{name}**")
                 st.image(img,width=100)
 
@@ -323,9 +294,7 @@ if st.button("בדוק נוכחות"):
         st.header(f"❌ חסרים ({len(missing_students)})")
 
         if missing_students:
-
             for s in missing_students:
                 st.write(s)
-
         else:
             st.success("כולם נוכחים")
