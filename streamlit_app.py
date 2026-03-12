@@ -76,16 +76,22 @@ def build_pro_embedding():
 # טעינת מודל
 # -------------------------
 st.write(os.listdir())
-@st.cache_resource
+# -------------------------
+# טעינת מודל
+# -------------------------
 def load_model():
 
     model = build_pro_embedding()
 
-    # בניית המודל כדי ש-Keras ידע את מבנה המשקולות
-    model.build((None,128,128,3))
+    # בניית המודל
+    model(np.zeros((1,128,128,3)))
 
-    # טעינת המשקולות
-    model.load_weights("face_encoder.weights.h5")
+    # טעינת משקולות
+    model.load_weights(
+        "face_encoder.weights.h5",
+        by_name=True,
+        skip_mismatch=True
+    )
 
     return model
 
