@@ -7,6 +7,7 @@ import numpy as np
 import os
 import zipfile
 import cv2
+from mtcnn import MTCNN
 
 # -------------------------
 # הגדרות דף
