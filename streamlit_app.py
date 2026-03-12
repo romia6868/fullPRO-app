@@ -1,6 +1,6 @@
 import streamlit as st
 import tensorflow as tf
-from keras.applications import MobileNetV2
+from tensorflow.keras.applications import MobileNetV2
 from tensorflow.keras import layers, models
 from PIL import Image, ImageOps
 import numpy as np
@@ -73,6 +73,7 @@ def build_pro_embedding():
 def load_model():
 
     model = build_pro_embedding()
+
     model(np.zeros((1,128,128,3)))
 
     model.load_weights(
@@ -84,7 +85,6 @@ def load_model():
     return model
 
 model = load_model()
-st.success("המודל נטען בהצלחה")
 
 # -------------------------
 # preprocessing
@@ -92,13 +92,16 @@ st.success("המודל נטען בהצלחה")
 def preprocess_image(img):
 
     img = img.convert("RGB").resize((128,128))
+
     arr = np.array(img).astype(np.float32) / 255.0
+
     return np.expand_dims(arr, axis=0)
 
 # -------------------------
 # cosine distance
 # -------------------------
 def cosine_distance(a,b):
+
     return 1 - np.dot(a,b) / (np.linalg.norm(a)*np.linalg.norm(b))
 
 # -------------------------
@@ -134,7 +137,7 @@ def load_reference_embeddings():
                     student_embeddings.append(emb)
 
             if student_embeddings:
-                embeddings[student] = np.mean(student_embeddings, axis=0)
+                embeddings[student] = student_embeddings
 
     return embeddings
 
@@ -143,16 +146,17 @@ reference_embeddings = load_reference_embeddings()
 st.info(f"נמצאו {len(reference_embeddings)} תלמידים במאגר")
 
 # -------------------------
-# טעינת גלאי פנים (MTCNN)
+# גלאי פנים
 # -------------------------
 @st.cache_resource
 def load_face_detector():
+
     return MTCNN()
 
 face_detector = load_face_detector()
 
 # -------------------------
-# זיהוי וחיתוך פנים
+# חיתוך פנים
 # -------------------------
 def extract_faces(image):
 
@@ -165,33 +169,34 @@ def extract_faces(image):
 
     for det in detections:
 
-        x, y, w, h = det["box"]
+        x,y,w,h = det["box"]
 
-        x = max(0, x)
-        y = max(0, y)
+        x = max(0,x)
+        y = max(0,y)
 
-        pad = int(0.2 * w)
+        pad = int(0.2*w)
 
-        x = max(0, x - pad)
-        y = max(0, y - pad)
+        x = max(0,x-pad)
+        y = max(0,y-pad)
 
         w = w + 2*pad
         h = h + 2*pad
 
-        face = img[y:y+h, x:x+w]
+        face = img[y:y+h , x:x+w]
 
         if face.size == 0:
             continue
 
-        face = cv2.resize(face, (128,128))
+        face = cv2.resize(face,(128,128))
+
         face_img = Image.fromarray(face)
 
         faces.append({
-            "face": face_img,
-            "box": (x,y,w,h)
+            "face":face_img,
+            "box":(x,y,w,h)
         })
 
-    return faces, img
+    return faces,img
 
 # -------------------------
 # Sidebar
@@ -204,7 +209,7 @@ with st.sidebar:
         "Similarity Threshold",
         0.0,
         1.0,
-        0.25
+        0.22
     )
 
     st.write("תלמידים בכיתה")
@@ -254,20 +259,24 @@ if st.button("בדוק נוכחות"):
         best_name = None
         best_dist = 1.0
 
-        for name, ref_emb in reference_embeddings.items():
+        for name, ref_embs in reference_embeddings.items():
 
-            dist = cosine_distance(emb, ref_emb)
+            for ref_emb in ref_embs:
 
-            if dist < threshold and dist < best_dist:
-                best_dist = dist
-                best_name = name
+                dist = cosine_distance(emb,ref_emb)
 
-        if best_name:
+                if dist < threshold and dist < best_dist:
+
+                    best_dist = dist
+                    best_name = name
+
+        if best_name and best_name not in present_students:
+
             present_students[best_name] = img
 
         recognized_faces.append({
-            "name": best_name,
-            "box": box
+            "name":best_name,
+            "box":box
         })
 
     img_draw = original_img.copy()
@@ -275,6 +284,7 @@ if st.button("בדוק נוכחות"):
     for face in recognized_faces:
 
         x,y,w,h = face["box"]
+
         name = face["name"] if face["name"] else "Unknown"
 
         cv2.rectangle(img_draw,(x,y),(x+w,y+h),(0,255,0),2)
@@ -292,7 +302,7 @@ if st.button("בדוק נוכחות"):
     st.subheader("תוצאת זיהוי")
 
     st.image(
-        cv2.cvtColor(img_draw, cv2.COLOR_BGR2RGB),
+        cv2.cvtColor(img_draw,cv2.COLOR_BGR2RGB),
         use_column_width=True
     )
 
@@ -313,7 +323,8 @@ if st.button("בדוק נוכחות"):
 
         for i,(name,img) in enumerate(present_students.items()):
 
-            with cols[i % 3]:
+            with cols[i%3]:
+
                 st.write(f"**{name}**")
                 st.image(img,width=90)
 
@@ -322,7 +333,9 @@ if st.button("בדוק נוכחות"):
         st.header(f"❌ חסרים ({len(missing_students)})")
 
         if missing_students:
+
             for s in missing_students:
                 st.write(s)
+
         else:
             st.success("כולם נוכחים")
