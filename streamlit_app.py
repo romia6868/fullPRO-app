@@ -7,10 +7,18 @@ import numpy as np
 import os
 import zipfile
 import cv2
-from retinaface import RetinaFace
+from mtcnn import MTCNN
+
+# -------------------------
+# הגדרות דף
+# -------------------------
 
 st.set_page_config(page_title="מערכת נוכחות חכמה", layout="wide")
 st.title("📸 מערכת נוכחות חכמה")
+
+# -------------------------
+# חילוץ מאגר תמונות
+# -------------------------
 
 ZIP_PATH = "My_Classmates_small.zip"
 EXTRACT_PATH = "My_Classmates"
@@ -21,13 +29,23 @@ if not os.path.exists(EXTRACT_PATH):
 
 REFERENCE_DIR = "My_Classmates/content/My_Classmates_small"
 
+# -------------------------
+# רשימת תלמידים
+# -------------------------
+
 STUDENT_ROSTER = ['Maayan','Tomer','Roei','Zohar','Ilay']
 
+# -------------------------
+# שכבת נרמול
+# -------------------------
 
 class L2Normalize(tf.keras.layers.Layer):
     def call(self, inputs):
         return tf.math.l2_normalize(inputs, axis=1)
 
+# -------------------------
+# בניית מודל
+# -------------------------
 
 def build_model():
 
@@ -53,6 +71,9 @@ def build_model():
 
     return model
 
+# -------------------------
+# טעינת מודל
+# -------------------------
 
 @st.cache_resource
 def load_model():
@@ -69,24 +90,32 @@ def load_model():
 
     return model
 
-
 model = load_model()
-st.success("המודל נטען בהצלחה")
+st.success("המודל נטען")
 
+# -------------------------
+# preprocessing
+# -------------------------
 
 def preprocess_image(img):
 
     img = img.convert("RGB").resize((128,128))
 
-    arr = np.array(img).astype(np.float32) / 255.0
+    arr = np.array(img).astype(np.float32)/255.0
 
     return np.expand_dims(arr, axis=0)
 
+# -------------------------
+# cosine distance
+# -------------------------
 
 def cosine_distance(a,b):
 
     return 1 - np.dot(a,b)/(np.linalg.norm(a)*np.linalg.norm(b))
 
+# -------------------------
+# טעינת embeddings
+# -------------------------
 
 @st.cache_data
 def load_reference_embeddings():
@@ -95,7 +124,7 @@ def load_reference_embeddings():
 
     for student in os.listdir(REFERENCE_DIR):
 
-        student_path = os.path.join(REFERENCE_DIR, student)
+        student_path = os.path.join(REFERENCE_DIR,student)
 
         if os.path.isdir(student_path):
 
@@ -118,55 +147,66 @@ def load_reference_embeddings():
                     student_embeddings.append(emb)
 
             if student_embeddings:
-                embeddings[student] = np.mean(student_embeddings, axis=0)
+
+                embeddings[student] = np.mean(student_embeddings,axis=0)
 
     return embeddings
-
 
 reference_embeddings = load_reference_embeddings()
 
 st.info(f"נמצאו {len(reference_embeddings)} תלמידים במאגר")
 
+# -------------------------
+# טעינת גלאי פנים
+# -------------------------
+
+@st.cache_resource
+def load_face_detector():
+    return MTCNN()
+
+face_detector = load_face_detector()
+
+# -------------------------
+# זיהוי פנים
+# -------------------------
 
 def extract_faces(image):
 
     image = image.convert("RGB")
     img = np.array(image)
 
+    detections = face_detector.detect_faces(img)
+
     faces = []
 
-    detections = RetinaFace.detect_faces(img)
+    for det in detections:
 
-    if isinstance(detections, dict):
+        x,y,w,h = det["box"]
 
-        for face in detections.values():
+        pad = int(w*0.25)
 
-            x1, y1, x2, y2 = face["facial_area"]
+        x1 = max(0,x-pad)
+        y1 = max(0,y-pad)
+        x2 = min(img.shape[1],x+w+pad)
+        y2 = min(img.shape[0],y+h+pad)
 
-            w = x2 - x1
-            h = y2 - y1
+        face = img[y1:y2,x1:x2]
 
-            pad = int(w * 0.25)
+        if face.size == 0:
+            continue
 
-            x1 = max(0, x1 - pad)
-            y1 = max(0, y1 - pad)
-            x2 = min(img.shape[1], x2 + pad)
-            y2 = min(img.shape[0], y2 + pad)
+        face = cv2.resize(face,(128,128))
 
-            face_img = img[y1:y2, x1:x2]
+        faces.append({
+            "face": Image.fromarray(face),
+            "box": (x,y,w,h)
+        })
 
-            if face_img.size == 0:
-                continue
+    return faces,img
 
-            face_img = cv2.resize(face_img,(128,128))
-
-            faces.append({
-                "face": Image.fromarray(face_img),
-                "box": (x1,y1,w,h)
-            })
-
-    return faces, img
-
+# -------------------------
+# Sidebar
+# -------------------------
 
 with st.sidebar:
 
@@ -184,6 +224,9 @@ with st.sidebar:
     for s in STUDENT_ROSTER:
         st.write(s)
 
+# -------------------------
+# העלאת תמונה
+# -------------------------
 
 st.subheader("העלי תמונת כיתה")
 
@@ -192,6 +235,9 @@ class_file = st.file_uploader(
     type=["jpg","jpeg","png"]
 )
 
+# -------------------------
+# זיהוי
+# -------------------------
 
 if st.button("בדוק נוכחות"):
 
@@ -202,7 +248,7 @@ if st.button("בדוק נוכחות"):
     class_image = Image.open(class_file)
     class_image = ImageOps.exif_transpose(class_image)
 
-    faces, original_img = extract_faces(class_image)
+    faces,original_img = extract_faces(class_image)
 
     st.write(f"זוהו {len(faces)} פנים")
 
@@ -220,14 +266,13 @@ if st.button("בדוק נוכחות"):
         )[0]
 
         best_name = None
-        best_dist = 1.0
+        best_dist = 1
 
-        for name, ref_emb in reference_embeddings.items():
+        for name,ref_emb in reference_embeddings.items():
 
-            dist = cosine_distance(emb, ref_emb)
+            dist = cosine_distance(emb,ref_emb)
 
             if dist < best_dist:
-
                 best_dist = dist
                 best_name = name
 
@@ -285,7 +330,8 @@ if st.button("בדוק נוכחות"):
 
         for i,(name,img) in enumerate(present_students.items()):
 
-            with cols[i % 3]:
+            with cols[i%3]:
+
                 st.write(f"**{name}**")
                 st.image(img,width=100)
 
