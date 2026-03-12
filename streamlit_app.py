@@ -84,6 +84,7 @@ def load_model():
     return model
 
 model = load_model()
+st.success("המודל נטען בהצלחה")
 
 # -------------------------
 # preprocessing
@@ -151,33 +152,6 @@ def load_face_detector():
 face_detector = load_face_detector()
 
 # -------------------------
-# יישור פנים לפי עיניים
-# -------------------------
-def align_face(img, left_eye, right_eye):
-
-    left_eye = np.array(left_eye)
-    right_eye = np.array(right_eye)
-
-    dy = right_eye[1] - left_eye[1]
-    dx = right_eye[0] - left_eye[0]
-
-    angle = np.degrees(np.arctan2(dy,dx))
-
-    eyes_center = ((left_eye[0] + right_eye[0]) // 2,
-                   (left_eye[1] + right_eye[1]) // 2)
-
-    M = cv2.getRotationMatrix2D(eyes_center, angle, 1)
-
-    aligned = cv2.warpAffine(
-        img,
-        M,
-        (img.shape[1], img.shape[0]),
-        flags=cv2.INTER_CUBIC
-    )
-
-    return aligned
-
-# -------------------------
 # חיתוך פנים
 # -------------------------
 def extract_faces(image):
@@ -192,7 +166,6 @@ def extract_faces(image):
     for det in detections:
 
         x,y,w,h = det["box"]
-        keypoints = det["keypoints"]
 
         x = max(0,x)
         y = max(0,y)
@@ -209,12 +182,6 @@ def extract_faces(image):
 
         if face.size == 0:
             continue
-
-        face = align_face(
-            face,
-            keypoints["left_eye"],
-            keypoints["right_eye"]
-        )
 
         face = cv2.resize(face,(224,224))
 
@@ -312,7 +279,6 @@ if st.button("בדוק נוכחות"):
     for face in recognized_faces:
 
         x,y,w,h = face["box"]
-
         name = face["name"] if face["name"] else "Unknown"
 
         cv2.rectangle(img_draw,(x,y),(x+w,y+h),(0,255,0),2)
@@ -330,7 +296,7 @@ if st.button("בדוק נוכחות"):
     st.subheader("תוצאת זיהוי")
 
     st.image(
-        cv2.cvtColor(img_draw,cv2.COLOR_BGR2RGB),
+        cv2.cvtColor(img_draw, cv2.COLOR_BGR2RGB),
         use_column_width=True
     )
 
@@ -351,8 +317,7 @@ if st.button("בדוק נוכחות"):
 
         for i,(name,img) in enumerate(present_students.items()):
 
-            with cols[i%3]:
-
+            with cols[i % 3]:
                 st.write(f"**{name}**")
                 st.image(img,width=90)
 
@@ -361,9 +326,7 @@ if st.button("בדוק נוכחות"):
         st.header(f"❌ חסרים ({len(missing_students)})")
 
         if missing_students:
-
             for s in missing_students:
                 st.write(s)
-
         else:
             st.success("כולם נוכחים")
