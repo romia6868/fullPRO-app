@@ -1,6 +1,7 @@
-streamlit
-tensorflow-cpu
-numpy
-pillow
+streamlit==1.32.2
+tensorflow==2.15.0
 opencv-python-headless
+Pillow
+numpy
 mtcnn
+h5py
