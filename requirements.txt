@@ -2,5 +2,5 @@ streamlit
 tensorflow-cpu
 numpy
 pillow
-retina-face
 opencv-python-headless
+mtcnn
