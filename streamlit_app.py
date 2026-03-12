@@ -1,6 +1,6 @@
 import streamlit as st
 import tensorflow as tf
-from tensorflow.keras.applications import MobileNetV2
+from keras.applications import MobileNetV2
 from tensorflow.keras import layers, models
 from PIL import Image, ImageOps
 import numpy as np
