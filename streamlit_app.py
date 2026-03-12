@@ -7,7 +7,6 @@ import numpy as np
 import os
 import zipfile
 import cv2
-from mtcnn import MTCNN
 
 # -------------------------
 # הגדרות דף
@@ -55,14 +54,11 @@ def build_pro_embedding():
     model = models.Sequential([
         base_model,
         layers.GlobalAveragePooling2D(),
-
         layers.Dense(512, activation="relu"),
         layers.BatchNormalization(),
         layers.Dropout(0.3),
-
         layers.Dense(256, activation="relu"),
         layers.BatchNormalization(),
-
         layers.Dense(128),
         L2Normalize()
     ])
@@ -77,10 +73,8 @@ def load_model():
 
     model = build_pro_embedding()
 
-    # בניית המודל בפועל
     model(np.zeros((1,128,128,3)))
 
-    # טעינת משקולות
     model.load_weights(
         "face_encoder.weights.h5",
         by_name=True,
@@ -141,31 +135,36 @@ def load_reference_embeddings():
                     student_embeddings.append(emb)
 
             if student_embeddings:
-
                 embeddings[student] = np.mean(student_embeddings, axis=0)
 
     return embeddings
 
 reference_embeddings = load_reference_embeddings()
+
 st.info(f"נמצאו {len(reference_embeddings)} תלמידים במאגר")
 
 # -------------------------
-# טעינת Face Detector
+# טעינת גלאי פנים
 # -------------------------
 @st.cache_resource
-def load_detector():
-    return MTCNN()
+def load_face_detector():
 
-detector = load_detector()
+    detector = cv2.CascadeClassifier(
+        cv2.data.haarcascades + "haarcascade_frontalface_default.xml"
+    )
+
+    return detector
+
+face_detector = load_face_detector()
 
 # -------------------------
 # זיהוי פנים
 # -------------------------
 def extract_faces(image):
 
+    image = image.convert("RGB")
     img = np.array(image)
 
-    # הקטנת תמונה גדולה מדי
     max_size = 800
     h, w = img.shape[:2]
 
@@ -173,16 +172,18 @@ def extract_faces(image):
         scale = max_size / max(h, w)
         img = cv2.resize(img, (int(w*scale), int(h*scale)))
 
-    results = detector.detect_faces(img)
+    gray = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
+
+    detections = face_detector.detectMultiScale(
+        gray,
+        scaleFactor=1.2,
+        minNeighbors=5,
+        minSize=(40,40)
+    )
 
     faces = []
 
-    for res in results:
-
-        x,y,w,h = res['box']
-
-        x = max(0,x)
-        y = max(0,y)
+    for (x,y,w,h) in detections:
 
         face = img[y:y+h, x:x+w]
 
@@ -218,7 +219,7 @@ with st.sidebar:
         st.write(s)
 
 # -------------------------
-# העלאת תמונת כיתה
+# העלאת תמונה
 # -------------------------
 st.subheader("העלי תמונת כיתה")
 
@@ -276,7 +277,6 @@ if st.button("בדוק נוכחות"):
             "box": box
         })
 
-    # ציור bounding boxes
     img_draw = original_img.copy()
 
     for face in recognized_faces:
@@ -284,13 +284,7 @@ if st.button("בדוק נוכחות"):
         x,y,w,h = face["box"]
         name = face["name"] if face["name"] else "Unknown"
 
-        cv2.rectangle(
-            img_draw,
-            (x,y),
-            (x+w,y+h),
-            (0,255,0),
-            2
-        )
+        cv2.rectangle(img_draw,(x,y),(x+w,y+h),(0,255,0),2)
 
         cv2.putText(
             img_draw,
@@ -309,7 +303,6 @@ if st.button("בדוק נוכחות"):
         use_column_width=True
     )
 
-    # חסרים
     missing_students = [
         s for s in STUDENT_ROSTER
         if s not in present_students
@@ -328,7 +321,6 @@ if st.button("בדוק נוכחות"):
         for i,(name,img) in enumerate(present_students.items()):
 
             with cols[i % 3]:
-
                 st.write(f"**{name}**")
                 st.image(img,width=90)
 
@@ -337,10 +329,7 @@ if st.button("בדוק נוכחות"):
         st.header(f"❌ חסרים ({len(missing_students)})")
 
         if missing_students:
-
             for s in missing_students:
                 st.write(s)
-
         else:
-
             st.success("כולם נוכחים")
