@@ -25,7 +25,11 @@ class L2Normalize(tf.keras.layers.Layer):
         return tf.math.l2_normalize(inputs, axis=1)
 
 def build_pro_embedding():
-    base_model = MobileNetV2(input_shape=(224,224,3), include_top=False, weights="imagenet")
+    base_model = MobileNetV2(
+        input_shape=(128,128,3),  # ← 128 כמו באפליקציה המקורית
+        include_top=False,
+        weights="imagenet"
+    )
     base_model.trainable = False
     model = models.Sequential([
         base_model,
@@ -43,15 +47,14 @@ def build_pro_embedding():
 @st.cache_resource
 def load_model():
     model = build_pro_embedding()
-    model(np.zeros((1,224,224,3)))
-    model.load_weights("face_encoder.weights.h5", by_name=True, skip_mismatch=True)
+    model.load_weights("face_encoder.weights.h5")  # ← בלי by_name ו-skip_mismatch
     return model
 
 model = load_model()
 st.success("המודל נטען בהצלחה")
 
 def preprocess_image(img):
-    img = img.convert("RGB").resize((224,224))
+    img = img.convert("RGB").resize((128,128))  # ← 128 כמו באפליקציה המקורית
     arr = np.array(img).astype(np.float32) / 255.0
     return np.expand_dims(arr, axis=0)
 
@@ -84,7 +87,7 @@ def extract_faces(image, confidence_threshold=0.7):
             face = img_rgb[y1:y2, x1:x2]
             if face.size == 0:
                 continue
-            face_resized = np.array(Image.fromarray(face).resize((224, 224)))
+            face_resized = np.array(Image.fromarray(face).resize((128, 128)))
             face_img = Image.fromarray(face_resized)
             faces.append({"face": face_img, "box": (x1, y1, x2-x1, y2-y1)})
     return faces, img_rgb
@@ -101,13 +104,8 @@ def load_reference_embeddings():
                         img_path = os.path.join(student_path, file)
                         img = Image.open(img_path)
                         img = ImageOps.exif_transpose(img)
-                        faces, _ = extract_faces(img, 0.5)
-                        if faces:
-                            face_img = faces[0]["face"]
-                        else:
-                            face_img = img
-                        emb = model.predict(preprocess_image(face_img), verbose=0)[0]
-                        emb = emb / np.linalg.norm(emb)
+                        # תמונות reference כבר פנים חתוכות - נעביר ישירות
+                        emb = model.predict(preprocess_image(img), verbose=0)[0]
                         student_embeddings.append(emb)
                     except Exception as e:
                         st.error(f"שגיאה בקובץ {file}: {type(e).__name__}: {e}")
@@ -120,7 +118,7 @@ st.info(f"נמצאו {len(reference_embeddings)} תלמידים במאגר")
 
 with st.sidebar:
     st.header("הגדרות")
-    threshold = st.slider("Similarity Threshold", 0.0, 1.0, 0.26)
+    threshold = st.slider("Similarity Threshold", 0.0, 1.0, 0.5)
     confidence = st.slider("Face Detection Confidence", 0.5, 1.0, 0.7)
     st.write("תלמידים בכיתה")
     for s in STUDENT_ROSTER:
@@ -148,9 +146,8 @@ if st.button("בדוק נוכחות"):
         box = data["box"]
 
         emb = model.predict(preprocess_image(img), verbose=0)[0]
-        emb = emb / np.linalg.norm(emb)
 
-        # ממוצע מרחק לכל תלמיד
+        # מרחק מינימלי לכל תלמיד
         avg_distances = {}
         for name, ref_embs in reference_embeddings.items():
             dists = [cosine_distance(emb, ref_emb) for ref_emb in ref_embs]
@@ -171,7 +168,7 @@ if st.button("בדוק נוכחות"):
             present_students[best_name] = img
             recognized_faces.append({"name": best_name, "box": box})
 
-    # ציור תיבות עם PIL בלבד (ללא cv2)
+    # ציור תיבות עם PIL
     img_draw = Image.fromarray(original_img_rgb)
     draw = ImageDraw.Draw(img_draw)
     for face in recognized_faces:
