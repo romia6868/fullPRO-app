@@ -169,7 +169,6 @@ def extract_faces(image):
 # -------------------------
 # יצירת embeddings למאגר
 # -------------------------
-
 @st.cache_data
 def load_reference_embeddings():
 
@@ -179,34 +178,39 @@ def load_reference_embeddings():
 
         student_path = os.path.join(REFERENCE_DIR,student)
 
-        student_embs = []
+        if os.path.isdir(student_path):
 
-        for file in os.listdir(student_path):
+            student_embs = []
 
-            if file.lower().endswith((".jpg",".jpeg",".png")):
+            for file in os.listdir(student_path):
 
-                img = Image.open(os.path.join(student_path,file))
-                img = ImageOps.exif_transpose(img)
+                if file.lower().endswith((".jpg",".jpeg",".png")):
 
-                faces,_ = extract_faces(img)
+                    img = Image.open(os.path.join(student_path,file))
+                    img = ImageOps.exif_transpose(img)
 
-                for f in faces:
+                    # חיתוך פנים גם במאגר
+                    faces,_ = extract_faces(img)
 
-                    emb = model.predict(
-                        preprocess_image(f["face"]),
-                        verbose=0
-                    )[0]
+                    for f in faces:
 
-                    emb = emb / np.linalg.norm(emb)
+                        face_img = f["face"]
 
-                    student_embs.append(emb)
+                        emb = model.predict(
+                            preprocess_image(face_img),
+                            verbose=0
+                        )[0]
 
-        if student_embs:
+                        emb = emb / np.linalg.norm(emb)
 
-            mean_emb = np.mean(student_embs,axis=0)
-            mean_emb = mean_emb / np.linalg.norm(mean_emb)
+                        student_embs.append(emb)
 
-            embeddings[student] = mean_emb
+            if student_embs:
+
+                mean_emb = np.mean(student_embs,axis=0)
+                mean_emb = mean_emb / np.linalg.norm(mean_emb)
+
+                embeddings[student] = mean_emb
 
     return embeddings
 
