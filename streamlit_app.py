@@ -1,12 +1,9 @@
 import streamlit as st
-import tensorflow as tf
-from tensorflow.keras.applications import MobileNetV2
-from tensorflow.keras import layers, models
+from deepface import DeepFace
 from PIL import Image, ImageOps, ImageDraw
 import numpy as np
 import os
 import zipfile
-import mediapipe as mp
 
 st.set_page_config(page_title="מערכת נוכחות חכמה", layout="wide")
 st.title("📸 מערכת נוכחות חכמה")
@@ -20,50 +17,43 @@ if not os.path.exists(EXTRACT_PATH):
 REFERENCE_DIR = "My_Classmates/content/My_Classmates_small"
 STUDENT_ROSTER = ['Maayan','Tomer','Roei','Zohar','Ilay']
 
-class L2Normalize(tf.keras.layers.Layer):
-    def call(self, inputs):
-        return tf.math.l2_normalize(inputs, axis=1)
-
-def build_pro_embedding():
-    base_model = MobileNetV2(
-        input_shape=(128,128,3),  # ← 128 כמו באפליקציה המקורית
-        include_top=False,
-        weights="imagenet"
-    )
-    base_model.trainable = False
-    model = models.Sequential([
-        base_model,
-        layers.GlobalAveragePooling2D(),
-        layers.Dense(512, activation="relu"),
-        layers.BatchNormalization(),
-        layers.Dropout(0.3),
-        layers.Dense(256, activation="relu"),
-        layers.BatchNormalization(),
-        layers.Dense(128),
-        L2Normalize()
-    ])
-    return model
-
+# -------------------------
+# טעינת embeddings של reference
+# -------------------------
 @st.cache_resource
-def load_model():
-    model = build_pro_embedding()
-    model.load_weights("face_encoder.weights.h5")  # ← בלי by_name ו-skip_mismatch
-    return model
+def load_reference_embeddings():
+    embeddings = {}
+    for student in os.listdir(REFERENCE_DIR):
+        student_path = os.path.join(REFERENCE_DIR, student)
+        if os.path.isdir(student_path):
+            student_embeddings = []
+            for file in os.listdir(student_path):
+                if file.lower().endswith((".jpg",".jpeg",".png")):
+                    img_path = os.path.join(student_path, file)
+                    try:
+                        result = DeepFace.represent(
+                            img_path=img_path,
+                            model_name="Facenet512",
+                            detector_backend="skip",  # תמונות reference כבר חתוכות
+                            enforce_detection=False
+                        )
+                        emb = np.array(result[0]["embedding"])
+                        emb = emb / np.linalg.norm(emb)
+                        student_embeddings.append(emb)
+                    except Exception as e:
+                        st.warning(f"שגיאה ב-{file}: {e}")
+            if student_embeddings:
+                embeddings[student] = student_embeddings
+    return embeddings
 
-model = load_model()
-st.success("המודל נטען בהצלחה")
+reference_embeddings = load_reference_embeddings()
+st.info(f"נמצאו {len(reference_embeddings)} תלמידים במאגר")
 
-def preprocess_image(img):
-    img = img.convert("RGB").resize((128,128))  # ← 128 כמו באפליקציה המקורית
-    arr = np.array(img).astype(np.float32) / 255.0
-    return np.expand_dims(arr, axis=0)
-
-def cosine_distance(a, b):
-    a = a / np.linalg.norm(a)
-    b = b / np.linalg.norm(b)
-    return 1 - np.dot(a, b)
-
+# -------------------------
+# חיתוך פנים
+# -------------------------
 def extract_faces(image, confidence_threshold=0.7):
+    import mediapipe as mp
     img_rgb = np.array(image.convert("RGB"))
     mp_face = mp.solutions.face_detection
     faces = []
@@ -87,38 +77,22 @@ def extract_faces(image, confidence_threshold=0.7):
             face = img_rgb[y1:y2, x1:x2]
             if face.size == 0:
                 continue
-            face_resized = np.array(Image.fromarray(face).resize((128, 128)))
-            face_img = Image.fromarray(face_resized)
+            face_img = Image.fromarray(face).resize((160, 160))
             faces.append({"face": face_img, "box": (x1, y1, x2-x1, y2-y1)})
     return faces, img_rgb
 
-def load_reference_embeddings():
-    embeddings = {}
-    for student in os.listdir(REFERENCE_DIR):
-        student_path = os.path.join(REFERENCE_DIR, student)
-        if os.path.isdir(student_path):
-            student_embeddings = []
-            for file in os.listdir(student_path):
-                if file.lower().endswith((".jpg",".jpeg",".png")):
-                    try:
-                        img_path = os.path.join(student_path, file)
-                        img = Image.open(img_path)
-                        img = ImageOps.exif_transpose(img)
-                        # תמונות reference כבר פנים חתוכות - נעביר ישירות
-                        emb = model.predict(preprocess_image(img), verbose=0)[0]
-                        student_embeddings.append(emb)
-                    except Exception as e:
-                        st.error(f"שגיאה בקובץ {file}: {type(e).__name__}: {e}")
-            if student_embeddings:
-                embeddings[student] = student_embeddings
-    return embeddings
+# -------------------------
+# cosine distance
+# -------------------------
+def cosine_distance(a, b):
+    return 1 - np.dot(a, b)
 
-reference_embeddings = load_reference_embeddings()
-st.info(f"נמצאו {len(reference_embeddings)} תלמידים במאגר")
-
+# -------------------------
+# Sidebar
+# -------------------------
 with st.sidebar:
     st.header("הגדרות")
-    threshold = st.slider("Similarity Threshold", 0.0, 1.0, 0.5)
+    threshold = st.slider("Similarity Threshold", 0.0, 1.0, 0.4)
     confidence = st.slider("Face Detection Confidence", 0.5, 1.0, 0.7)
     st.write("תלמידים בכיתה")
     for s in STUDENT_ROSTER:
@@ -145,7 +119,20 @@ if st.button("בדוק נוכחות"):
         img = data["face"]
         box = data["box"]
 
-        emb = model.predict(preprocess_image(img), verbose=0)[0]
+        # DeepFace embedding על הפנים החתוכות
+        try:
+            img_array = np.array(img)
+            result = DeepFace.represent(
+                img_path=img_array,
+                model_name="Facenet512",
+                detector_backend="skip",
+                enforce_detection=False
+            )
+            emb = np.array(result[0]["embedding"])
+            emb = emb / np.linalg.norm(emb)
+        except Exception as e:
+            st.warning(f"שגיאה בפנים {i+1}: {e}")
+            continue
 
         # מרחק מינימלי לכל תלמיד
         avg_distances = {}
@@ -162,13 +149,13 @@ if st.button("בדוק נוכחות"):
         st.image(img, width=100, caption=f"פנים {i+1}")
         for name, dist in sorted(avg_distances.items(), key=lambda x: x[1]):
             st.write(f"{name}: {dist:.4f}")
-        st.write(f"זוהה כ: {best_name} (מרחק={best_dist:.4f}, threshold={threshold})")
+        st.write(f"זוהה כ: {best_name} (מרחק={best_dist:.4f})")
 
         if best_name and best_name not in present_students:
             present_students[best_name] = img
             recognized_faces.append({"name": best_name, "box": box})
 
-    # ציור תיבות עם PIL
+    # ציור תיבות
     img_draw = Image.fromarray(original_img_rgb)
     draw = ImageDraw.Draw(img_draw)
     for face in recognized_faces:
