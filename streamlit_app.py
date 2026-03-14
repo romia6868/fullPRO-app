@@ -64,7 +64,7 @@ def extract_faces(image):
         x = max(0,x)
         y = max(0,y)
 
-        pad = int(max(w,h)*0.45)
+        pad = int(max(w,h)*0.35)
 
         x1 = max(0,x-pad)
         y1 = max(0,y-pad)
@@ -89,7 +89,13 @@ def extract_faces(image):
 
         face = align_face(face,left_eye,right_eye)
 
+        # resize
         face_resized = cv2.resize(face,(224,224))
+
+        # חשוב מאוד: המרת צבעים
+        face_resized = cv2.cvtColor(face_resized, cv2.COLOR_BGR2RGB)
+
+        face_original_rgb = cv2.cvtColor(face, cv2.COLOR_BGR2RGB)
 
         face_pil = Image.fromarray(face_resized)
 
@@ -97,7 +103,7 @@ def extract_faces(image):
         face_pil.save(save_path)
 
         faces.append({
-            "face_original":face,
+            "face_original":face_original_rgb,
             "face_resized":face_resized,
             "size":original_size,
             "path":save_path,
@@ -129,7 +135,7 @@ if uploaded:
 
     st.write(f"זוהו {len(faces)} פנים")
 
-    # ציור תיבות
+    # ציור קופסאות
     draw = cv2.cvtColor(original_img.copy(),cv2.COLOR_RGB2BGR)
 
     for f in faces:
@@ -161,14 +167,15 @@ if uploaded:
             st.write(f["size"])
 
             st.image(
-                cv2.cvtColor(f["face_original"],cv2.COLOR_BGR2RGB),
+                f["face_original"],
                 caption="לפני resize"
             )
 
             st.image(
-                cv2.cvtColor(f["face_resized"],cv2.COLOR_BGR2RGB),
+                f["face_resized"],
                 caption="אחרי resize (224x224)"
             )
 
             st.write("קובץ לבדיקה באפליקציה השנייה:")
+
             st.code(f["path"])
