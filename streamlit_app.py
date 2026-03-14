@@ -61,9 +61,6 @@ def cosine_distance(a, b):
     b = b / np.linalg.norm(b)
     return 1 - np.dot(a, b)
 
-
-@st.cache_resource
-
 def load_reference_embeddings():
     embeddings = {}
     for student in os.listdir(REFERENCE_DIR):
