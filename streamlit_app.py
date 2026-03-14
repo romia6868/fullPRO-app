@@ -179,14 +179,16 @@ face_detector = load_face_detector()
 def extract_faces(image):
 
     image = image.convert("RGB")
+
     img = np.array(image)
+    img = img.astype("uint8")
+    img = np.ascontiguousarray(img)
 
     detections = face_detector.detect_faces(img)
 
     faces = []
 
     H, W, _ = img.shape
-
     for det in detections:
 
         x,y,w,h = det["box"]
