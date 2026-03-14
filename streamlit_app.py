@@ -225,6 +225,42 @@ reference_embeddings = load_reference_embeddings()
 
 st.info(f"נמצאו {len(reference_embeddings)} תלמידים במאגר")
 
+st.subheader("בדיקת המודל על תמונות המאגר")
+
+for student in os.listdir(REFERENCE_DIR):
+
+    student_path = os.path.join(REFERENCE_DIR, student)
+
+    if not os.path.isdir(student_path):
+        continue
+
+    for file in os.listdir(student_path):
+
+        if file.lower().endswith((".jpg",".jpeg",".png")):
+
+            img = Image.open(os.path.join(student_path,file))
+            img = ImageOps.exif_transpose(img)
+
+            emb = model.predict(
+                preprocess_image(img),
+                verbose=0
+            )[0]
+
+            emb = emb / np.linalg.norm(emb)
+
+            best_name = None
+            best_score = -1
+
+            for name, ref_emb in reference_embeddings.items():
+
+                score = cosine_similarity(emb, ref_emb)
+
+                if score > best_score:
+                    best_score = score
+                    best_name = name
+
+            st.write(student, "→", best_name, round(best_score,3))
+            break
 # -------------------------
 # Sidebar
 # -------------------------
