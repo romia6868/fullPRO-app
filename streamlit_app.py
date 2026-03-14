@@ -13,17 +13,20 @@ from retinaface import RetinaFace
 # -------------------------
 # הגדרות דף
 # -------------------------
+
 st.set_page_config(page_title="מערכת נוכחות חכמה", layout="wide")
 st.title("📸 מערכת נוכחות חכמה")
 
 # -------------------------
 # חילוץ מאגר התמונות
 # -------------------------
+
 ZIP_PATH = "My_Classmates_small.zip"
 EXTRACT_PATH = "My_Classmates"
 
 if not os.path.exists(EXTRACT_PATH):
-    with zipfile.ZipFile(ZIP_PATH, 'r') as zip_ref:
+
+    with zipfile.ZipFile(ZIP_PATH,'r') as zip_ref:
         zip_ref.extractall(EXTRACT_PATH)
 
 REFERENCE_DIR = "My_Classmates/content/My_Classmates_small"
@@ -31,19 +34,23 @@ REFERENCE_DIR = "My_Classmates/content/My_Classmates_small"
 # -------------------------
 # רשימת תלמידים
 # -------------------------
+
 STUDENT_ROSTER = ['Maayan','Tomer','Roei','Zohar','Ilay']
 
 # -------------------------
 # שכבת נרמול
 # -------------------------
+
 class L2Normalize(tf.keras.layers.Layer):
-    def call(self, inputs):
-        return tf.math.l2_normalize(inputs, axis=1)
+
+    def call(self,inputs):
+        return tf.math.l2_normalize(inputs,axis=1)
 
 # -------------------------
 # בניית מודל
 # -------------------------
-def build_pro_embedding():
+
+def build_embedding_model():
 
     base_model = MobileNetV2(
         input_shape=(224,224,3),
@@ -54,15 +61,21 @@ def build_pro_embedding():
     base_model.trainable = False
 
     model = models.Sequential([
+
         base_model,
         layers.GlobalAveragePooling2D(),
-        layers.Dense(512, activation="relu"),
+
+        layers.Dense(512,activation="relu"),
         layers.BatchNormalization(),
         layers.Dropout(0.3),
-        layers.Dense(256, activation="relu"),
+
+        layers.Dense(256,activation="relu"),
         layers.BatchNormalization(),
+
         layers.Dense(128),
+
         L2Normalize()
+
     ])
 
     return model
@@ -70,10 +83,11 @@ def build_pro_embedding():
 # -------------------------
 # טעינת מודל
 # -------------------------
+
 @st.cache_resource
 def load_model():
 
-    model = build_pro_embedding()
+    model = build_embedding_model()
 
     model(np.zeros((1,224,224,3)))
 
@@ -86,11 +100,13 @@ def load_model():
     return model
 
 model = load_model()
-st.success("המודל נטען בהצלחה")
+
+st.success("המודל נטען")
 
 # -------------------------
 # preprocessing
 # -------------------------
+
 def preprocess_image(img):
 
     img = img.convert("RGB").resize((224,224))
@@ -99,21 +115,23 @@ def preprocess_image(img):
 
     arr = preprocess_input(arr)
 
-    return np.expand_dims(arr, axis=0)
+    return np.expand_dims(arr,axis=0)
 
 # -------------------------
-# cosine distance
+# cosine similarity
 # -------------------------
-def cosine_distance(a,b):
+
+def cosine_similarity(a,b):
 
     a = a / np.linalg.norm(a)
     b = b / np.linalg.norm(b)
 
-    return 1 - np.dot(a,b)
+    return np.dot(a,b)
 
 # -------------------------
-# טעינת embeddings
+# יצירת embedding ממוצע לכל תלמיד
 # -------------------------
+
 @st.cache_data
 def load_reference_embeddings():
 
@@ -121,19 +139,17 @@ def load_reference_embeddings():
 
     for student in os.listdir(REFERENCE_DIR):
 
-        student_path = os.path.join(REFERENCE_DIR, student)
+        student_path = os.path.join(REFERENCE_DIR,student)
 
         if os.path.isdir(student_path):
 
-            student_embeddings = []
+            student_embs = []
 
             for file in os.listdir(student_path):
 
                 if file.lower().endswith((".jpg",".jpeg",".png")):
 
-                    img_path = os.path.join(student_path,file)
-
-                    img = Image.open(img_path)
+                    img = Image.open(os.path.join(student_path,file))
                     img = ImageOps.exif_transpose(img)
 
                     emb = model.predict(
@@ -143,10 +159,14 @@ def load_reference_embeddings():
 
                     emb = emb / np.linalg.norm(emb)
 
-                    student_embeddings.append(emb)
+                    student_embs.append(emb)
 
-            if student_embeddings:
-                embeddings[student] = student_embeddings
+            if student_embs:
+
+                mean_emb = np.mean(student_embs,axis=0)
+                mean_emb = mean_emb / np.linalg.norm(mean_emb)
+
+                embeddings[student] = mean_emb
 
     return embeddings
 
@@ -155,8 +175,9 @@ reference_embeddings = load_reference_embeddings()
 st.info(f"נמצאו {len(reference_embeddings)} תלמידים במאגר")
 
 # -------------------------
-# חיתוך פנים (RetinaFace)
+# חיתוך פנים RetinaFace
 # -------------------------
+
 def extract_faces(image):
 
     image = image.convert("RGB")
@@ -166,7 +187,7 @@ def extract_faces(image):
 
     faces = []
 
-    if isinstance(detections, dict):
+    if isinstance(detections,dict):
 
         for key in detections:
 
@@ -174,14 +195,14 @@ def extract_faces(image):
 
             x1,y1,x2,y2 = identity["facial_area"]
 
-            w = x2 - x1
-            pad = int(0.25 * w)
+            w = x2-x1
+            pad = int(0.25*w)
 
-            x1 = max(0, x1-pad)
-            y1 = max(0, y1-pad)
+            x1 = max(0,x1-pad)
+            y1 = max(0,y1-pad)
 
-            x2 = min(img.shape[1], x2+pad)
-            y2 = min(img.shape[0], y2+pad)
+            x2 = min(img.shape[1],x2+pad)
+            y2 = min(img.shape[0],y2+pad)
 
             face = img[y1:y2 , x1:x2]
 
@@ -202,15 +223,16 @@ def extract_faces(image):
 # -------------------------
 # Sidebar
 # -------------------------
+
 with st.sidebar:
 
     st.header("הגדרות")
 
     threshold = st.slider(
         "Similarity Threshold",
-        0.0,
+        0.7,
         1.0,
-        0.14
+        0.94
     )
 
     st.write("תלמידים בכיתה")
@@ -221,6 +243,7 @@ with st.sidebar:
 # -------------------------
 # העלאת תמונה
 # -------------------------
+
 st.subheader("העלי תמונת כיתה")
 
 class_file = st.file_uploader(
@@ -231,6 +254,7 @@ class_file = st.file_uploader(
 # -------------------------
 # זיהוי
 # -------------------------
+
 if st.button("בדוק נוכחות"):
 
     if class_file is None:
@@ -240,7 +264,7 @@ if st.button("בדוק נוכחות"):
     class_image = Image.open(class_file)
     class_image = ImageOps.exif_transpose(class_image)
 
-    faces, original_img = extract_faces(class_image)
+    faces,original_img = extract_faces(class_image)
 
     st.write(f"זוהו {len(faces)} פנים")
 
@@ -260,19 +284,17 @@ if st.button("בדוק נוכחות"):
         emb = emb / np.linalg.norm(emb)
 
         best_name = None
-        best_dist = 999
+        best_score = -1
 
-        for name, ref_embs in reference_embeddings.items():
+        for name,ref_emb in reference_embeddings.items():
 
-            for ref_emb in ref_embs:
+            score = cosine_similarity(emb,ref_emb)
 
-                dist = cosine_distance(emb, ref_emb)
+            if score > best_score:
+                best_score = score
+                best_name = name
 
-                if dist < best_dist:
-                    best_dist = dist
-                    best_name = name
-
-        if best_dist > threshold:
+        if best_score < threshold:
             best_name = None
 
         if best_name and best_name not in present_students:
@@ -305,7 +327,7 @@ if st.button("בדוק נוכחות"):
 
     st.subheader("תוצאת זיהוי")
 
-    st.image(img_draw, use_column_width=True)
+    st.image(img_draw,use_column_width=True)
 
     missing_students = [
         s for s in STUDENT_ROSTER
@@ -325,6 +347,7 @@ if st.button("בדוק נוכחות"):
         for i,(name,img) in enumerate(present_students.items()):
 
             with cols[i % 3]:
+
                 st.write(f"**{name}**")
                 st.image(img,width=90)
 
@@ -333,7 +356,10 @@ if st.button("בדוק נוכחות"):
         st.header(f"❌ חסרים ({len(missing_students)})")
 
         if missing_students:
+
             for s in missing_students:
                 st.write(s)
+
         else:
+
             st.success("כולם נוכחים")
