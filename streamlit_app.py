@@ -13,7 +13,7 @@ from tensorflow.keras import layers, models
 # -------------------------
 
 st.set_page_config(layout="wide")
-st.title("Face Crop + Embedding Debug")
+st.title("Face Crop + Recognition Debug")
 
 DEBUG_DIR = "debug_faces"
 os.makedirs(DEBUG_DIR, exist_ok=True)
@@ -23,13 +23,16 @@ REFERENCE_DIR = "My_Classmates/content/My_Classmates_small"
 detector = MTCNN()
 
 # -------------------------
-# מודל embedding
+# שכבת נורמליזציה
 # -------------------------
 
 class L2Normalize(tf.keras.layers.Layer):
     def call(self, inputs):
         return tf.math.l2_normalize(inputs, axis=1)
 
+# -------------------------
+# בניית מודל
+# -------------------------
 
 def build_model():
 
@@ -52,6 +55,9 @@ def build_model():
 
     return model
 
+# -------------------------
+# טעינת מודל
+# -------------------------
 
 @st.cache_resource
 def load_model():
@@ -68,7 +74,6 @@ def load_model():
 
     return model
 
-
 model = load_model()
 
 # -------------------------
@@ -82,6 +87,19 @@ def preprocess(img):
 
     return np.expand_dims(arr,0)
 
+# pipelines להשוואה
+
+def preprocess_app1(img):
+
+    img = img.resize((224,224))
+    arr = np.array(img).astype(np.float32) / 255.0
+    return np.expand_dims(arr,0)
+
+def preprocess_app2(img):
+
+    img = img.resize((224,224))
+    arr = np.array(img).astype(np.float32) / 255.0
+    return np.expand_dims(arr,0)
 
 # -------------------------
 # cosine distance
@@ -94,9 +112,8 @@ def cosine_distance(a,b):
 
     return 1 - np.dot(a,b)
 
-
 # -------------------------
-# טעינת מאגר embeddings
+# טעינת embeddings של המאגר
 # -------------------------
 
 @st.cache_data
@@ -114,7 +131,7 @@ def load_reference_embeddings():
 
             for file in os.listdir(student_path):
 
-                if file.lower().endswith(("jpg","png","jpeg")):
+                if file.lower().endswith(("jpg","jpeg","png")):
 
                     path = os.path.join(student_path,file)
 
@@ -129,7 +146,6 @@ def load_reference_embeddings():
                 embeddings[student] = embs
 
     return embeddings
-
 
 reference_embeddings = load_reference_embeddings()
 
@@ -156,7 +172,6 @@ def align_face(face,left_eye,right_eye):
     )
 
     return aligned
-
 
 # -------------------------
 # חיתוך פנים
@@ -197,11 +212,15 @@ def extract_faces(image):
 
         keypoints = det["keypoints"]
 
-        left_eye = (keypoints["left_eye"][0]-x1,
-                    keypoints["left_eye"][1]-y1)
+        left_eye = (
+            keypoints["left_eye"][0]-x1,
+            keypoints["left_eye"][1]-y1
+        )
 
-        right_eye = (keypoints["right_eye"][0]-x1,
-                     keypoints["right_eye"][1]-y1)
+        right_eye = (
+            keypoints["right_eye"][0]-x1,
+            keypoints["right_eye"][1]-y1
+        )
 
         face = align_face(face,left_eye,right_eye)
 
@@ -224,7 +243,6 @@ def extract_faces(image):
 
     return faces,img
 
-
 # -------------------------
 # העלאת תמונה
 # -------------------------
@@ -233,6 +251,10 @@ uploaded = st.file_uploader(
     "Upload class photo",
     type=["jpg","jpeg","png"]
 )
+
+# -------------------------
+# עיבוד
+# -------------------------
 
 if uploaded:
 
@@ -266,15 +288,15 @@ if uploaded:
             st.write("גודל לפני resize:")
             st.write(f["size"])
 
-            st.image(f["original"],caption="לפני resize")
+            st.image(f["original"],caption="לפני resize",channels="RGB")
 
-            st.image(f["resized"],caption="אחרי resize")
+            st.image(f["resized"],caption="אחרי resize",channels="RGB")
 
             st.write("קובץ לבדיקה:")
             st.code(f["path"])
 
             # -------------------------
-            # בדיקת embedding
+            # בדיקת זיהוי
             # -------------------------
 
             emb = model.predict(
@@ -295,10 +317,22 @@ if uploaded:
                         best_dist = d
                         best_name = name
 
-            st.write("זיהוי קרוב ביותר:")
-
+            st.write("Closest student:")
             st.write(best_name)
 
             st.write("distance:")
-
             st.write(best_dist)
+
+            # -------------------------
+            # בדיקת pipeline
+            # -------------------------
+
+            img_test = Image.open(f["path"])
+
+            emb1 = model.predict(preprocess_app1(img_test), verbose=0)[0]
+            emb2 = model.predict(preprocess_app2(img_test), verbose=0)[0]
+
+            dist_pipeline = cosine_distance(emb1, emb2)
+
+            st.write("Pipeline distance:")
+            st.write(dist_pipeline)
