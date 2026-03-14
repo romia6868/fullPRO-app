@@ -34,7 +34,7 @@ def load_reference_embeddings():
                         result = DeepFace.represent(
                             img_path=img_path,
                             model_name="Facenet512",
-                            detector_backend="skip",  # תמונות reference כבר חתוכות
+                            detector_backend="retinaface",  # ← חיתוך אוטומטי
                             enforce_detection=False
                         )
                         emb = np.array(result[0]["embedding"])
@@ -45,7 +45,6 @@ def load_reference_embeddings():
             if student_embeddings:
                 embeddings[student] = student_embeddings
     return embeddings
-
 reference_embeddings = load_reference_embeddings()
 st.info(f"נמצאו {len(reference_embeddings)} תלמידים במאגר")
 
