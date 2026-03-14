@@ -3,6 +3,4 @@ tensorflow==2.15.0
 numpy==1.26.4
 Pillow==10.2.0
 h5py==3.10.0
-setuptools==69.5.1
-opencv-python-headless==4.8.1.78
-retina-face==0.0.14
+mediapipe==0.10.9
