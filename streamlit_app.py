@@ -89,7 +89,31 @@ def load_reference_embeddings():
             if student_embeddings:
                 embeddings[student] = student_embeddings
     return embeddings
-
+def load_reference_embeddings():
+    embeddings = {}
+    for student in os.listdir(REFERENCE_DIR):
+        student_path = os.path.join(REFERENCE_DIR, student)
+        if os.path.isdir(student_path):
+            student_embeddings = []
+            for file in os.listdir(student_path):
+                if file.lower().endswith((".jpg",".jpeg",".png")):
+                    try:
+                        img_path = os.path.join(student_path, file)
+                        img = Image.open(img_path)
+                        img = ImageOps.exif_transpose(img)
+                        faces, _ = extract_faces(img, 0.5)
+                        if faces:
+                            face_img = faces[0]["face"]
+                        else:
+                            face_img = img
+                        emb = model.predict(preprocess_image(face_img), verbose=0)[0]
+                        emb = emb / np.linalg.norm(emb)
+                        student_embeddings.append(emb)
+                    except Exception as e:
+                        st.error(f"שגיאה בקובץ {file}: {type(e).__name__}: {e}")
+            if student_embeddings:
+                embeddings[student] = student_embeddings
+    return embeddings
 reference_embeddings = load_reference_embeddings()
 st.info(f"נמצאו {len(reference_embeddings)} תלמידים במאגר")
 
