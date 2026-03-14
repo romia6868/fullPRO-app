@@ -9,16 +9,8 @@ import os
 import zipfile
 from retinaface import RetinaFace
 
-# -------------------------
-# הגדרות דף
-# -------------------------
-
 st.set_page_config(page_title="מערכת נוכחות חכמה", layout="wide")
 st.title("📸 מערכת נוכחות חכמה")
-
-# -------------------------
-# חילוץ מאגר התמונות
-# -------------------------
 
 ZIP_PATH = "My_Classmates_small.zip"
 EXTRACT_PATH = "My_Classmates"
@@ -31,17 +23,9 @@ REFERENCE_DIR = "My_Classmates/content/My_Classmates_small"
 
 STUDENT_ROSTER = ['Maayan','Tomer','Roei','Zohar','Ilay']
 
-# -------------------------
-# שכבת נרמול
-# -------------------------
-
 class L2Normalize(tf.keras.layers.Layer):
     def call(self,inputs):
         return tf.math.l2_normalize(inputs,axis=1)
-
-# -------------------------
-# בניית מודל
-# -------------------------
 
 def build_embedding_model():
 
@@ -67,10 +51,6 @@ def build_embedding_model():
 
     return model
 
-# -------------------------
-# טעינת מודל
-# -------------------------
-
 @st.cache_resource
 def load_model():
 
@@ -90,10 +70,6 @@ model = load_model()
 
 st.success("המודל נטען")
 
-# -------------------------
-# preprocessing
-# -------------------------
-
 def preprocess_image(img):
 
     img = img.convert("RGB").resize((224,224))
@@ -104,10 +80,6 @@ def preprocess_image(img):
 
     return np.expand_dims(arr,axis=0)
 
-# -------------------------
-# cosine similarity
-# -------------------------
-
 def cosine_similarity(a,b):
 
     a = a / np.linalg.norm(a)
@@ -115,16 +87,31 @@ def cosine_similarity(a,b):
 
     return np.dot(a,b)
 
-# -------------------------
-# חיתוך פנים
-# -------------------------
+MAX_SIZE = 1200
+
+def resize_for_detection(image):
+
+    w,h = image.size
+
+    if max(w,h) > MAX_SIZE:
+
+        scale = MAX_SIZE / max(w,h)
+
+        new_w = int(w*scale)
+        new_h = int(h*scale)
+
+        image = image.resize((new_w,new_h))
+
+    return image
 
 def extract_faces(image):
+
+    image = resize_for_detection(image)
 
     image = image.convert("RGB")
     img = np.array(image)
 
-    detections = RetinaFace.detect_faces(img)
+    detections = RetinaFace.detect_faces(img, threshold=0.6)
 
     faces = []
 
@@ -138,7 +125,7 @@ def extract_faces(image):
 
             w = x2-x1
 
-            if w < 60:
+            if w < 35:
                 continue
 
             pad = int(0.25*w)
@@ -161,10 +148,6 @@ def extract_faces(image):
             })
 
     return faces,image
-
-# -------------------------
-# טעינת embeddings למאגר
-# -------------------------
 
 @st.cache_data
 def load_reference_embeddings():
@@ -208,10 +191,6 @@ reference_embeddings = load_reference_embeddings()
 
 st.info(f"נמצאו {len(reference_embeddings)} תלמידים במאגר")
 
-# -------------------------
-# Sidebar
-# -------------------------
-
 with st.sidebar:
 
     st.header("הגדרות")
@@ -223,20 +202,12 @@ with st.sidebar:
         0.85
     )
 
-# -------------------------
-# העלאת תמונה
-# -------------------------
-
 st.subheader("העלי תמונת כיתה")
 
 class_file = st.file_uploader(
     "Upload class photo",
     type=["jpg","jpeg","png"]
 )
-
-# -------------------------
-# זיהוי
-# -------------------------
 
 if st.button("בדוק נוכחות"):
 
