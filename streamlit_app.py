@@ -6,8 +6,7 @@ from PIL import Image, ImageOps
 import numpy as np
 import os
 import zipfile
-import cv2
-from retinaface import RetinaFace
+
 
 st.set_page_config(page_title="מערכת נוכחות חכמה", layout="wide")
 st.title("📸 מערכת נוכחות חכמה")
