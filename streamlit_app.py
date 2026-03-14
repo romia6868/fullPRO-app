@@ -8,7 +8,7 @@ import numpy as np
 import os
 import zipfile
 import cv2
-from mtcnn import MTCNN
+from retinaface import RetinaFace
 
 # -------------------------
 # הגדרות דף
@@ -74,6 +74,7 @@ def build_pro_embedding():
 def load_model():
 
     model = build_pro_embedding()
+
     model(np.zeros((1,224,224,3)))
 
     model.load_weights(
@@ -93,7 +94,9 @@ st.success("המודל נטען בהצלחה")
 def preprocess_image(img):
 
     img = img.convert("RGB").resize((224,224))
+
     arr = np.array(img).astype(np.float32)
+
     arr = preprocess_input(arr)
 
     return np.expand_dims(arr, axis=0)
@@ -152,56 +155,47 @@ reference_embeddings = load_reference_embeddings()
 st.info(f"נמצאו {len(reference_embeddings)} תלמידים במאגר")
 
 # -------------------------
-# גלאי פנים
-# -------------------------
-@st.cache_resource
-def load_face_detector():
-    return MTCNN()
-
-face_detector = load_face_detector()
-
-# -------------------------
-# חיתוך פנים
+# חיתוך פנים (RetinaFace)
 # -------------------------
 def extract_faces(image):
 
     image = image.convert("RGB")
     img = np.array(image)
 
-    detections = face_detector.detect_faces(img)
+    detections = RetinaFace.detect_faces(img)
 
     faces = []
 
-    h_img, w_img = img.shape[:2]
+    if isinstance(detections, dict):
 
-    for det in detections:
+        for key in detections:
 
-        x,y,w,h = det["box"]
+            identity = detections[key]
 
-        x = max(0,x)
-        y = max(0,y)
+            x1,y1,x2,y2 = identity["facial_area"]
 
-        pad = int(0.25*w)
+            w = x2 - x1
+            pad = int(0.25 * w)
 
-        x1 = max(0,x-pad)
-        y1 = max(0,y-pad)
+            x1 = max(0, x1-pad)
+            y1 = max(0, y1-pad)
 
-        x2 = min(w_img,x+w+pad)
-        y2 = min(h_img,y+h+pad)
+            x2 = min(img.shape[1], x2+pad)
+            y2 = min(img.shape[0], y2+pad)
 
-        face = img[y1:y2 , x1:x2]
+            face = img[y1:y2 , x1:x2]
 
-        if face.size == 0:
-            continue
+            if face.size == 0:
+                continue
 
-        face = cv2.resize(face,(224,224))
+            face = cv2.resize(face,(224,224))
 
-        face_img = Image.fromarray(face)
+            face_img = Image.fromarray(face)
 
-        faces.append({
-            "face":face_img,
-            "box":(x1,y1,x2-x1,y2-y1)
-        })
+            faces.append({
+                "face":face_img,
+                "box":(x1,y1,x2-x1,y2-y1)
+            })
 
     return faces,img
 
