@@ -3,5 +3,5 @@ tensorflow==2.15.0
 opencv-python-headless
 Pillow
 numpy
-mtcnn
+mtcnn==0.1.1
 h5py
