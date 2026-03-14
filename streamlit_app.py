@@ -168,7 +168,7 @@ st.info(f"נמצאו {len(reference_embeddings)} תלמידים במאגר")
 @st.cache_resource
 def load_face_detector():
 
-    return MTCNN
+    MTCNN()
 
 face_detector = load_face_detector()
 
