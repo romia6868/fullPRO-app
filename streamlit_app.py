@@ -3,15 +3,22 @@ import tensorflow as tf
 from tensorflow.keras.applications import MobileNetV2
 from tensorflow.keras import layers, models
 from tensorflow.keras.applications.mobilenet_v2 import preprocess_input
-from PIL import Image, ImageOps
+from PIL import Image, ImageOps, ImageDraw
 import numpy as np
 import os
 import zipfile
-import cv2
 from retinaface import RetinaFace
+
+# -------------------------
+# הגדרות דף
+# -------------------------
 
 st.set_page_config(page_title="מערכת נוכחות חכמה", layout="wide")
 st.title("📸 מערכת נוכחות חכמה")
+
+# -------------------------
+# חילוץ מאגר התמונות
+# -------------------------
 
 ZIP_PATH = "My_Classmates_small.zip"
 EXTRACT_PATH = "My_Classmates"
@@ -24,9 +31,17 @@ REFERENCE_DIR = "My_Classmates/content/My_Classmates_small"
 
 STUDENT_ROSTER = ['Maayan','Tomer','Roei','Zohar','Ilay']
 
+# -------------------------
+# שכבת נרמול
+# -------------------------
+
 class L2Normalize(tf.keras.layers.Layer):
     def call(self,inputs):
         return tf.math.l2_normalize(inputs,axis=1)
+
+# -------------------------
+# בניית מודל
+# -------------------------
 
 def build_embedding_model():
 
@@ -52,6 +67,10 @@ def build_embedding_model():
 
     return model
 
+# -------------------------
+# טעינת מודל
+# -------------------------
+
 @st.cache_resource
 def load_model():
 
@@ -71,13 +90,23 @@ model = load_model()
 
 st.success("המודל נטען")
 
+# -------------------------
+# preprocessing
+# -------------------------
+
 def preprocess_image(img):
 
     img = img.convert("RGB").resize((224,224))
+
     arr = np.array(img).astype(np.float32)
+
     arr = preprocess_input(arr)
 
     return np.expand_dims(arr,axis=0)
+
+# -------------------------
+# cosine similarity
+# -------------------------
 
 def cosine_similarity(a,b):
 
@@ -86,10 +115,14 @@ def cosine_similarity(a,b):
 
     return np.dot(a,b)
 
+# -------------------------
+# חיתוך פנים
+# -------------------------
+
 def extract_faces(image):
 
     image = image.convert("RGB")
-    img = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
+    img = np.array(image)
 
     detections = RetinaFace.detect_faces(img)
 
@@ -120,17 +153,18 @@ def extract_faces(image):
             if face.size == 0:
                 continue
 
-            face = cv2.resize(face,(224,224))
-            face = cv2.cvtColor(face, cv2.COLOR_BGR2RGB)
-
-            face_img = Image.fromarray(face)
+            face_img = Image.fromarray(face).resize((224,224))
 
             faces.append({
                 "face":face_img,
                 "box":(x1,y1,x2-x1,y2-y1)
             })
 
-    return faces,img
+    return faces,image
+
+# -------------------------
+# טעינת embeddings למאגר
+# -------------------------
 
 @st.cache_data
 def load_reference_embeddings():
@@ -174,6 +208,10 @@ reference_embeddings = load_reference_embeddings()
 
 st.info(f"נמצאו {len(reference_embeddings)} תלמידים במאגר")
 
+# -------------------------
+# Sidebar
+# -------------------------
+
 with st.sidebar:
 
     st.header("הגדרות")
@@ -185,12 +223,20 @@ with st.sidebar:
         0.85
     )
 
+# -------------------------
+# העלאת תמונה
+# -------------------------
+
 st.subheader("העלי תמונת כיתה")
 
 class_file = st.file_uploader(
     "Upload class photo",
     type=["jpg","jpeg","png"]
 )
+
+# -------------------------
+# זיהוי
+# -------------------------
 
 if st.button("בדוק נוכחות"):
 
@@ -246,6 +292,7 @@ if st.button("בדוק נוכחות"):
         })
 
     img_draw = original_img.copy()
+    draw = ImageDraw.Draw(img_draw)
 
     for face in recognized_faces:
 
@@ -256,17 +303,8 @@ if st.button("בדוק נוכחות"):
 
         label = f"{name} {score}"
 
-        cv2.rectangle(img_draw,(x,y),(x+w,y+h),(0,255,0),2)
-
-        cv2.putText(
-            img_draw,
-            label,
-            (x,y-10),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            0.6,
-            (0,255,0),
-            2
-        )
+        draw.rectangle([x,y,x+w,y+h], outline="green", width=3)
+        draw.text((x,y-15), label, fill="green")
 
     st.subheader("תוצאת זיהוי")
 
@@ -304,4 +342,5 @@ if st.button("בדוק נוכחות"):
                 st.write(s)
 
         else:
+
             st.success("כולם נוכחים")
