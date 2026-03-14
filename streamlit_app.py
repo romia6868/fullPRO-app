@@ -2,6 +2,7 @@ import streamlit as st
 import tensorflow as tf
 from tensorflow.keras.applications import MobileNetV2
 from tensorflow.keras import layers, models
+from tensorflow.keras.applications.mobilenet_v2 import preprocess_input
 from PIL import Image, ImageOps
 import numpy as np
 import os
@@ -12,14 +13,12 @@ from mtcnn import MTCNN
 # -------------------------
 # הגדרות דף
 # -------------------------
-
 st.set_page_config(page_title="מערכת נוכחות חכמה", layout="wide")
 st.title("📸 מערכת נוכחות חכמה")
 
 # -------------------------
 # חילוץ מאגר התמונות
 # -------------------------
-
 ZIP_PATH = "My_Classmates_small.zip"
 EXTRACT_PATH = "My_Classmates"
 
@@ -32,13 +31,11 @@ REFERENCE_DIR = "My_Classmates/content/My_Classmates_small"
 # -------------------------
 # רשימת תלמידים
 # -------------------------
-
 STUDENT_ROSTER = ['Maayan','Tomer','Roei','Zohar','Ilay']
 
 # -------------------------
 # שכבת נרמול
 # -------------------------
-
 class L2Normalize(tf.keras.layers.Layer):
     def call(self, inputs):
         return tf.math.l2_normalize(inputs, axis=1)
@@ -46,7 +43,6 @@ class L2Normalize(tf.keras.layers.Layer):
 # -------------------------
 # בניית מודל
 # -------------------------
-
 def build_pro_embedding():
 
     base_model = MobileNetV2(
@@ -74,12 +70,10 @@ def build_pro_embedding():
 # -------------------------
 # טעינת מודל
 # -------------------------
-
 @st.cache_resource
 def load_model():
 
     model = build_pro_embedding()
-
     model(np.zeros((1,224,224,3)))
 
     model.load_weights(
@@ -91,24 +85,22 @@ def load_model():
     return model
 
 model = load_model()
-
 st.success("המודל נטען בהצלחה")
 
 # -------------------------
 # preprocessing
 # -------------------------
-
 def preprocess_image(img):
 
     img = img.convert("RGB").resize((224,224))
-    arr = np.array(img).astype(np.float32) / 255.0
+    arr = np.array(img).astype(np.float32)
+    arr = preprocess_input(arr)
 
     return np.expand_dims(arr, axis=0)
 
 # -------------------------
 # cosine distance
 # -------------------------
-
 def cosine_distance(a,b):
 
     a = a / np.linalg.norm(a)
@@ -119,7 +111,6 @@ def cosine_distance(a,b):
 # -------------------------
 # טעינת embeddings
 # -------------------------
-
 @st.cache_data
 def load_reference_embeddings():
 
@@ -156,7 +147,6 @@ def load_reference_embeddings():
 
     return embeddings
 
-
 reference_embeddings = load_reference_embeddings()
 
 st.info(f"נמצאו {len(reference_embeddings)} תלמידים במאגר")
@@ -164,7 +154,6 @@ st.info(f"נמצאו {len(reference_embeddings)} תלמידים במאגר")
 # -------------------------
 # גלאי פנים
 # -------------------------
-
 @st.cache_resource
 def load_face_detector():
     return MTCNN()
@@ -174,36 +163,31 @@ face_detector = load_face_detector()
 # -------------------------
 # חיתוך פנים
 # -------------------------
-
 def extract_faces(image):
 
     image = image.convert("RGB")
-    img = np.array(image).astype("uint8")
+    img = np.array(image)
+
+    detections = face_detector.detect_faces(img)
 
     faces = []
 
-    try:
-        detections = face_detector.detect_faces(img)
-    except Exception as e:
-        st.error(f"MTCNN detection error: {e}")
-        return [], img
-
-    H, W, _ = img.shape
+    h_img, w_img = img.shape[:2]
 
     for det in detections:
 
-        x, y, w, h = det["box"]
+        x,y,w,h = det["box"]
 
-        x = max(0, x)
-        y = max(0, y)
+        x = max(0,x)
+        y = max(0,y)
 
-        pad = int(0.35 * max(w,h))
+        pad = int(0.25*w)
 
-        x1 = max(0, x-pad)
-        y1 = max(0, y-pad)
+        x1 = max(0,x-pad)
+        y1 = max(0,y-pad)
 
-        x2 = min(W, x+w+pad)
-        y2 = min(H, y+h+pad)
+        x2 = min(w_img,x+w+pad)
+        y2 = min(h_img,y+h+pad)
 
         face = img[y1:y2 , x1:x2]
 
@@ -224,14 +208,15 @@ def extract_faces(image):
 # -------------------------
 # Sidebar
 # -------------------------
-
 with st.sidebar:
 
     st.header("הגדרות")
 
     threshold = st.slider(
         "Similarity Threshold",
-        0.0,1.0,0.22
+        0.0,
+        1.0,
+        0.14
     )
 
     st.write("תלמידים בכיתה")
@@ -242,7 +227,6 @@ with st.sidebar:
 # -------------------------
 # העלאת תמונה
 # -------------------------
-
 st.subheader("העלי תמונת כיתה")
 
 class_file = st.file_uploader(
@@ -253,7 +237,6 @@ class_file = st.file_uploader(
 # -------------------------
 # זיהוי
 # -------------------------
-
 if st.button("בדוק נוכחות"):
 
     if class_file is None:
@@ -282,7 +265,8 @@ if st.button("בדוק נוכחות"):
 
         emb = emb / np.linalg.norm(emb)
 
-        distances = []
+        best_name = None
+        best_dist = 999
 
         for name, ref_embs in reference_embeddings.items():
 
@@ -290,11 +274,9 @@ if st.button("בדוק נוכחות"):
 
                 dist = cosine_distance(emb, ref_emb)
 
-                distances.append((name, dist))
-
-        distances.sort(key=lambda x: x[1])
-
-        best_name, best_dist = distances[0]
+                if dist < best_dist:
+                    best_dist = dist
+                    best_name = name
 
         if best_dist > threshold:
             best_name = None
@@ -315,27 +297,21 @@ if st.button("בדוק נוכחות"):
 
         name = face["name"] if face["name"] else "Unknown"
 
-        cv2.rectangle(
-            img_draw,
-            (x,y),
-            (x+w,y+h),
-            (0,255,0),
-            2
-        )
+        cv2.rectangle(img_draw,(x,y),(x+w,y+h),(0,255,0),2)
 
         cv2.putText(
             img_draw,
             name,
             (x,y-10),
             cv2.FONT_HERSHEY_SIMPLEX,
-            0.8,
+            0.7,
             (0,255,0),
             2
         )
 
     st.subheader("תוצאת זיהוי")
 
-    st.image(cv2.cvtColor(img_draw, cv2.COLOR_BGR2RGB), use_column_width=True)
+    st.image(img_draw, use_column_width=True)
 
     missing_students = [
         s for s in STUDENT_ROSTER
@@ -355,9 +331,7 @@ if st.button("בדוק נוכחות"):
         for i,(name,img) in enumerate(present_students.items()):
 
             with cols[i % 3]:
-
                 st.write(f"**{name}**")
-
                 st.image(img,width=90)
 
     with col2:
@@ -365,9 +339,7 @@ if st.button("בדוק נוכחות"):
         st.header(f"❌ חסרים ({len(missing_students)})")
 
         if missing_students:
-
             for s in missing_students:
                 st.write(s)
-
         else:
             st.success("כולם נוכחים")
