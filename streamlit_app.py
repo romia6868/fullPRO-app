@@ -73,7 +73,18 @@ def load_reference_embeddings():
                     img_path = os.path.join(student_path, file)
                     img = Image.open(img_path)
                     img = ImageOps.exif_transpose(img)
-                    emb = model.predict(preprocess_image(img), verbose=0)[0]
+                    
+                    # נריץ RetinaFace גם על תמונות ה-reference
+                    faces, _ = extract_faces(img, confidence_threshold=0.5)
+                    
+                    if faces:
+                        # אם זוהתה פנים – נשתמש בה
+                        face_img = faces[0]["face"]
+                    else:
+                        # אם לא זוהתה – נשתמש בתמונה המקורית כ-fallback
+                        face_img = img
+                    
+                    emb = model.predict(preprocess_image(face_img), verbose=0)[0]
                     emb = emb / np.linalg.norm(emb)
                     student_embeddings.append(emb)
             if student_embeddings:
