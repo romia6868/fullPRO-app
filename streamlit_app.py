@@ -162,33 +162,25 @@ reference_embeddings = load_reference_embeddings()
 st.info(f"נמצאו {len(reference_embeddings)} תלמידים במאגר")
 
 # -------------------------
-# גלאי פנים משופר
+# גלאי פנים
 # -------------------------
 
 @st.cache_resource
 def load_face_detector():
-    from mtcnn import MTCNN
     return MTCNN()
 
 face_detector = load_face_detector()
 
-detections = face_detector.detect_faces(img)
-st.write(type(face_detector))
 # -------------------------
-# חיתוך פנים משופר
+# חיתוך פנים
 # -------------------------
 
 def extract_faces(image):
 
     image = image.convert("RGB")
-    img = np.array(image)
+    img = np.array(image).astype("uint8")
 
     faces = []
-
-    # בדיקה שהגלאי נטען
-    if face_detector is None:
-        st.error("Face detector not loaded")
-        return [], img
 
     try:
         detections = face_detector.detect_faces(img)
@@ -205,28 +197,30 @@ def extract_faces(image):
         x = max(0, x)
         y = max(0, y)
 
-        pad = int(0.35 * max(w, h))
+        pad = int(0.35 * max(w,h))
 
-        x1 = max(0, x - pad)
-        y1 = max(0, y - pad)
+        x1 = max(0, x-pad)
+        y1 = max(0, y-pad)
 
-        x2 = min(W, x + w + pad)
-        y2 = min(H, y + h + pad)
+        x2 = min(W, x+w+pad)
+        y2 = min(H, y+h+pad)
 
-        face = img[y1:y2, x1:x2]
+        face = img[y1:y2 , x1:x2]
 
         if face.size == 0:
             continue
 
-        face = cv2.resize(face, (224, 224))
+        face = cv2.resize(face,(224,224))
+
         face_img = Image.fromarray(face)
 
         faces.append({
-            "face": face_img,
-            "box": (x1, y1, x2-x1, y2-y1)
+            "face":face_img,
+            "box":(x1,y1,x2-x1,y2-y1)
         })
 
-    return faces, img
+    return faces,img
+
 # -------------------------
 # Sidebar
 # -------------------------
@@ -300,26 +294,9 @@ if st.button("בדוק נוכחות"):
 
         distances.sort(key=lambda x: x[1])
 
-        top_matches = distances[:5]
+        best_name, best_dist = distances[0]
 
-        votes = {}
-        best_dist = 999
-        best_name = None
-
-        for name, dist in top_matches:
-
-            if dist < best_dist:
-                best_dist = dist
-                best_name = name
-
-            if dist < threshold:
-                votes[name] = votes.get(name,0) + 1
-
-        if votes:
-            best_name = max(votes, key=votes.get)
-        elif best_dist < threshold:
-            best_name = best_name
-        else:
+        if best_dist > threshold:
             best_name = None
 
         if best_name and best_name not in present_students:
@@ -358,7 +335,7 @@ if st.button("בדוק נוכחות"):
 
     st.subheader("תוצאת זיהוי")
 
-    st.image(img_draw,use_column_width=True)
+    st.image(cv2.cvtColor(img_draw, cv2.COLOR_BGR2RGB), use_column_width=True)
 
     missing_students = [
         s for s in STUDENT_ROSTER
@@ -381,11 +358,7 @@ if st.button("בדוק נוכחות"):
 
                 st.write(f"**{name}**")
 
-                st.image(
-                    img,
-                    width=90,
-                    channels="RGB"
-                )
+                st.image(img,width=90)
 
     with col2:
 
