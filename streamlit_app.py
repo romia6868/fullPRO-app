@@ -61,62 +61,7 @@ def cosine_distance(a, b):
     b = b / np.linalg.norm(b)
     return 1 - np.dot(a, b)
 
-def load_reference_embeddings():
-    embeddings = {}
-    for student in os.listdir(REFERENCE_DIR):
-        student_path = os.path.join(REFERENCE_DIR, student)
-        if os.path.isdir(student_path):
-            student_embeddings = []
-            for file in os.listdir(student_path):
-                if file.lower().endswith((".jpg",".jpeg",".png")):
-                    img_path = os.path.join(student_path, file)
-                    img = Image.open(img_path)
-                    img = ImageOps.exif_transpose(img)
-                    
-                    # נריץ RetinaFace גם על תמונות ה-reference
-                    faces, _ = extract_faces(img, 0.5)
-                    
-                    if faces:
-                        # אם זוהתה פנים – נשתמש בה
-                        face_img = faces[0]["face"]
-                    else:
-                        # אם לא זוהתה – נשתמש בתמונה המקורית כ-fallback
-                        face_img = img
-                    
-                    emb = model.predict(preprocess_image(face_img), verbose=0)[0]
-                    emb = emb / np.linalg.norm(emb)
-                    student_embeddings.append(emb)
-            if student_embeddings:
-                embeddings[student] = student_embeddings
-    return embeddings
-def load_reference_embeddings():
-    embeddings = {}
-    for student in os.listdir(REFERENCE_DIR):
-        student_path = os.path.join(REFERENCE_DIR, student)
-        if os.path.isdir(student_path):
-            student_embeddings = []
-            for file in os.listdir(student_path):
-                if file.lower().endswith((".jpg",".jpeg",".png")):
-                    try:
-                        img_path = os.path.join(student_path, file)
-                        img = Image.open(img_path)
-                        img = ImageOps.exif_transpose(img)
-                        faces, _ = extract_faces(img, 0.5)
-                        if faces:
-                            face_img = faces[0]["face"]
-                        else:
-                            face_img = img
-                        emb = model.predict(preprocess_image(face_img), verbose=0)[0]
-                        emb = emb / np.linalg.norm(emb)
-                        student_embeddings.append(emb)
-                    except Exception as e:
-                        st.error(f"שגיאה בקובץ {file}: {type(e).__name__}: {e}")
-            if student_embeddings:
-                embeddings[student] = student_embeddings
-    return embeddings
-reference_embeddings = load_reference_embeddings()
-st.info(f"נמצאו {len(reference_embeddings)} תלמידים במאגר")
-
+# ← extract_faces מוגדרת לפני load_reference_embeddings
 def extract_faces(image, confidence_threshold=0.90):
     img_rgb = np.array(image.convert("RGB"))
     detections = RetinaFace.detect_faces(img_rgb)
@@ -144,9 +89,39 @@ def extract_faces(image, confidence_threshold=0.90):
         faces.append({"face": face_img, "box": (x1, y1, x2-x1, y2-y1), "score": score})
     return faces, img_rgb
 
+# ← הגדרה אחת בלבד
+def load_reference_embeddings():
+    embeddings = {}
+    for student in os.listdir(REFERENCE_DIR):
+        student_path = os.path.join(REFERENCE_DIR, student)
+        if os.path.isdir(student_path):
+            student_embeddings = []
+            for file in os.listdir(student_path):
+                if file.lower().endswith((".jpg",".jpeg",".png")):
+                    try:
+                        img_path = os.path.join(student_path, file)
+                        img = Image.open(img_path)
+                        img = ImageOps.exif_transpose(img)
+                        faces, _ = extract_faces(img, 0.5)
+                        if faces:
+                            face_img = faces[0]["face"]
+                        else:
+                            face_img = img
+                        emb = model.predict(preprocess_image(face_img), verbose=0)[0]
+                        emb = emb / np.linalg.norm(emb)
+                        student_embeddings.append(emb)
+                    except Exception as e:
+                        st.error(f"שגיאה בקובץ {file}: {type(e).__name__}: {e}")
+            if student_embeddings:
+                embeddings[student] = student_embeddings
+    return embeddings
+
+reference_embeddings = load_reference_embeddings()
+st.info(f"נמצאו {len(reference_embeddings)} תלמידים במאגר")
+
 with st.sidebar:
     st.header("הגדרות")
-    threshold = st.slider("Similarity Threshold", 0.0, 1.0, 0.14)
+    threshold = st.slider("Similarity Threshold", 0.0, 1.0, 0.26)
     confidence = st.slider("Face Detection Confidence", 0.5, 1.0, 0.90)
     st.write("תלמידים בכיתה")
     for s in STUDENT_ROSTER:
