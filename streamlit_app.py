@@ -167,11 +167,16 @@ st.info(f"נמצאו {len(reference_embeddings)} תלמידים במאגר")
 
 @st.cache_resource
 def load_face_detector():
-
-    MTCNN()
+    try:
+        detector = MTCNN()
+        return detector
+    except Exception as e:
+        st.error(f"Face detector load failed: {e}")
+        return None
 
 face_detector = load_face_detector()
-
+detections = face_detector.detect_faces(img)
+st.write(type(face_detector))
 # -------------------------
 # חיתוך פנים משופר
 # -------------------------
