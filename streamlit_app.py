@@ -75,7 +75,7 @@ def load_reference_embeddings():
                     img = ImageOps.exif_transpose(img)
                     
                     # נריץ RetinaFace גם על תמונות ה-reference
-                    faces, _ = extract_faces(img, confidence_threshold=0.5)
+                    faces, _ = extract_faces(img, 0.5)
                     
                     if faces:
                         # אם זוהתה פנים – נשתמש בה
