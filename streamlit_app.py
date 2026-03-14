@@ -62,31 +62,36 @@ def cosine_distance(a, b):
     return 1 - np.dot(a, b)
 
 # ← extract_faces מוגדרת לפני load_reference_embeddings
-def extract_faces(image, confidence_threshold=0.90):
+import mediapipe as mp
+
+def extract_faces(image, confidence_threshold=0.7):
     img_rgb = np.array(image.convert("RGB"))
-    detections = RetinaFace.detect_faces(img_rgb)
+    mp_face = mp.solutions.face_detection
     faces = []
-    if not isinstance(detections, dict):
-        return faces, img_rgb
-    for key, det in detections.items():
-        score = det.get("score", 1.0)
-        if score < confidence_threshold:
-            continue
-        x1, y1, x2, y2 = det["facial_area"]
-        w = x2 - x1
-        h = y2 - y1
-        pad_x = int(0.2 * w)
-        pad_y = int(0.2 * h)
-        x1 = max(0, x1 - pad_x)
-        y1 = max(0, y1 - pad_y)
-        x2 = min(img_rgb.shape[1], x2 + pad_x)
-        y2 = min(img_rgb.shape[0], y2 + pad_y)
-        face = img_rgb[y1:y2, x1:x2]
-        if face.size == 0:
-            continue
-        face_resized = cv2.resize(face, (224, 224))
-        face_img = Image.fromarray(face_resized)
-        faces.append({"face": face_img, "box": (x1, y1, x2-x1, y2-y1), "score": score})
+    with mp_face.FaceDetection(model_selection=1, min_detection_confidence=confidence_threshold) as detector:
+        results = detector.process(img_rgb)
+        if not results.detections:
+            return faces, img_rgb
+        h, w = img_rgb.shape[:2]
+        for det in results.detections:
+            box = det.location_data.relative_bounding_box
+            x1 = max(0, int(box.xmin * w))
+            y1 = max(0, int(box.ymin * h))
+            x2 = min(w, int((box.xmin + box.width) * w))
+            y2 = min(h, int((box.ymin + box.height) * h))
+            # padding 20%
+            pad_x = int(0.2 * (x2 - x1))
+            pad_y = int(0.2 * (y2 - y1))
+            x1 = max(0, x1 - pad_x)
+            y1 = max(0, y1 - pad_y)
+            x2 = min(w, x2 + pad_x)
+            y2 = min(h, y2 + pad_y)
+            face = img_rgb[y1:y2, x1:x2]
+            if face.size == 0:
+                continue
+            face_resized = np.array(Image.fromarray(face).resize((224, 224)))
+            face_img = Image.fromarray(face_resized)
+            faces.append({"face": face_img, "box": (x1, y1, x2-x1, y2-y1)})
     return faces, img_rgb
 
 # ← הגדרה אחת בלבד
