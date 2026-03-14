@@ -25,15 +25,10 @@ ZIP_PATH = "My_Classmates_small.zip"
 EXTRACT_PATH = "My_Classmates"
 
 if not os.path.exists(EXTRACT_PATH):
-
     with zipfile.ZipFile(ZIP_PATH,'r') as zip_ref:
         zip_ref.extractall(EXTRACT_PATH)
 
 REFERENCE_DIR = "My_Classmates/content/My_Classmates_small"
-
-# -------------------------
-# רשימת תלמידים
-# -------------------------
 
 STUDENT_ROSTER = ['Maayan','Tomer','Roei','Zohar','Ilay']
 
@@ -42,12 +37,11 @@ STUDENT_ROSTER = ['Maayan','Tomer','Roei','Zohar','Ilay']
 # -------------------------
 
 class L2Normalize(tf.keras.layers.Layer):
-
     def call(self,inputs):
         return tf.math.l2_normalize(inputs,axis=1)
 
 # -------------------------
-# בניית מודל
+# מודל Embedding
 # -------------------------
 
 def build_embedding_model():
@@ -61,21 +55,15 @@ def build_embedding_model():
     base_model.trainable = False
 
     model = models.Sequential([
-
         base_model,
         layers.GlobalAveragePooling2D(),
-
         layers.Dense(512,activation="relu"),
         layers.BatchNormalization(),
         layers.Dropout(0.3),
-
         layers.Dense(256,activation="relu"),
         layers.BatchNormalization(),
-
         layers.Dense(128),
-
         L2Normalize()
-
     ])
 
     return model
@@ -129,53 +117,7 @@ def cosine_similarity(a,b):
     return np.dot(a,b)
 
 # -------------------------
-# יצירת embedding ממוצע לכל תלמיד
-# -------------------------
-
-@st.cache_data
-def load_reference_embeddings():
-
-    embeddings = {}
-
-    for student in os.listdir(REFERENCE_DIR):
-
-        student_path = os.path.join(REFERENCE_DIR,student)
-
-        if os.path.isdir(student_path):
-
-            student_embs = []
-
-            for file in os.listdir(student_path):
-
-                if file.lower().endswith((".jpg",".jpeg",".png")):
-
-                    img = Image.open(os.path.join(student_path,file))
-                    img = ImageOps.exif_transpose(img)
-
-                    emb = model.predict(
-                        preprocess_image(img),
-                        verbose=0
-                    )[0]
-
-                    emb = emb / np.linalg.norm(emb)
-
-                    student_embs.append(emb)
-
-            if student_embs:
-
-                mean_emb = np.mean(student_embs,axis=0)
-                mean_emb = mean_emb / np.linalg.norm(mean_emb)
-
-                embeddings[student] = mean_emb
-
-    return embeddings
-
-reference_embeddings = load_reference_embeddings()
-
-st.info(f"נמצאו {len(reference_embeddings)} תלמידים במאגר")
-
-# -------------------------
-# חיתוך פנים RetinaFace
+# חיתוך פנים
 # -------------------------
 
 def extract_faces(image):
@@ -196,11 +138,15 @@ def extract_faces(image):
             x1,y1,x2,y2 = identity["facial_area"]
 
             w = x2-x1
+
+            # סינון פנים קטנות
+            if w < 80:
+                continue
+
             pad = int(0.25*w)
 
             x1 = max(0,x1-pad)
             y1 = max(0,y1-pad)
-
             x2 = min(img.shape[1],x2+pad)
             y2 = min(img.shape[0],y2+pad)
 
@@ -221,6 +167,54 @@ def extract_faces(image):
     return faces,img
 
 # -------------------------
+# יצירת embeddings למאגר
+# -------------------------
+
+@st.cache_data
+def load_reference_embeddings():
+
+    embeddings = {}
+
+    for student in os.listdir(REFERENCE_DIR):
+
+        student_path = os.path.join(REFERENCE_DIR,student)
+
+        student_embs = []
+
+        for file in os.listdir(student_path):
+
+            if file.lower().endswith((".jpg",".jpeg",".png")):
+
+                img = Image.open(os.path.join(student_path,file))
+                img = ImageOps.exif_transpose(img)
+
+                faces,_ = extract_faces(img)
+
+                for f in faces:
+
+                    emb = model.predict(
+                        preprocess_image(f["face"]),
+                        verbose=0
+                    )[0]
+
+                    emb = emb / np.linalg.norm(emb)
+
+                    student_embs.append(emb)
+
+        if student_embs:
+
+            mean_emb = np.mean(student_embs,axis=0)
+            mean_emb = mean_emb / np.linalg.norm(mean_emb)
+
+            embeddings[student] = mean_emb
+
+    return embeddings
+
+reference_embeddings = load_reference_embeddings()
+
+st.info(f"נמצאו {len(reference_embeddings)} תלמידים במאגר")
+
+# -------------------------
 # Sidebar
 # -------------------------
 
@@ -230,15 +224,10 @@ with st.sidebar:
 
     threshold = st.slider(
         "Similarity Threshold",
-        0.7,
+        0.70,
         1.0,
-        0.94
+        0.86
     )
-
-    st.write("תלמידים בכיתה")
-
-    for s in STUDENT_ROSTER:
-        st.write(s)
 
 # -------------------------
 # העלאת תמונה
@@ -302,6 +291,7 @@ if st.button("בדוק נוכחות"):
 
         recognized_faces.append({
             "name":best_name,
+            "score":best_score,
             "box":box
         })
 
@@ -312,15 +302,18 @@ if st.button("בדוק נוכחות"):
         x,y,w,h = face["box"]
 
         name = face["name"] if face["name"] else "Unknown"
+        score = round(face["score"],2)
+
+        label = f"{name} {score}"
 
         cv2.rectangle(img_draw,(x,y),(x+w,y+h),(0,255,0),2)
 
         cv2.putText(
             img_draw,
-            name,
+            label,
             (x,y-10),
             cv2.FONT_HERSHEY_SIMPLEX,
-            0.7,
+            0.6,
             (0,255,0),
             2
         )
@@ -347,7 +340,6 @@ if st.button("בדוק נוכחות"):
         for i,(name,img) in enumerate(present_students.items()):
 
             with cols[i % 3]:
-
                 st.write(f"**{name}**")
                 st.image(img,width=90)
 
