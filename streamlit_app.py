@@ -1,176 +1,46 @@
 import streamlit as st
-import tensorflow as tf
-from tensorflow.keras.applications import MobileNetV2
-from tensorflow.keras import layers, models
-from tensorflow.keras.applications.mobilenet_v2 import preprocess_input
-from PIL import Image, ImageOps
 import numpy as np
-import os
-import zipfile
 import cv2
+from PIL import Image, ImageOps
 from mtcnn import MTCNN
+import os
 
 # -------------------------
-# הגדרות דף
+# הגדרות
 # -------------------------
 
-st.set_page_config(page_title="מערכת נוכחות חכמה", layout="wide")
-st.title("📸 מערכת נוכחות חכמה")
+st.set_page_config(page_title="Face Crop Debug", layout="wide")
+st.title("בדיקת חיתוך פנים מתמונה כיתתית")
+
+detector = MTCNN()
+
+DEBUG_DIR = "debug_faces"
+os.makedirs(DEBUG_DIR, exist_ok=True)
 
 # -------------------------
-# חילוץ מאגר תמונות
+# יישור פנים לפי עיניים
 # -------------------------
 
-ZIP_PATH = "My_Classmates_small.zip"
-EXTRACT_PATH = "My_Classmates"
+def align_face(face,left_eye,right_eye):
 
-if not os.path.exists(EXTRACT_PATH):
-    with zipfile.ZipFile(ZIP_PATH, 'r') as zip_ref:
-        zip_ref.extractall(EXTRACT_PATH)
+    dx = right_eye[0] - left_eye[0]
+    dy = right_eye[1] - left_eye[1]
 
-REFERENCE_DIR = "My_Classmates/content/My_Classmates_small"
+    angle = np.degrees(np.arctan2(dy,dx))
 
-STUDENT_ROSTER = ['Maayan','Tomer','Roei','Zohar','Ilay']
+    center = tuple(np.array(face.shape[1::-1]) / 2)
 
-# -------------------------
-# שכבת נרמול
-# -------------------------
+    rot_mat = cv2.getRotationMatrix2D(center,angle,1.0)
 
-class L2Normalize(tf.keras.layers.Layer):
-    def call(self, inputs):
-        return tf.math.l2_normalize(inputs, axis=1)
-
-# -------------------------
-# בניית מודל
-# -------------------------
-
-def build_model():
-
-    base_model = MobileNetV2(
-        input_shape=(224,224,3),
-        include_top=False,
-        weights="imagenet"
+    aligned = cv2.warpAffine(
+        face,
+        rot_mat,
+        face.shape[1::-1],
+        flags=cv2.INTER_CUBIC
     )
 
-    base_model.trainable = False
+    return aligned
 
-    model = models.Sequential([
-        base_model,
-        layers.GlobalAveragePooling2D(),
-        layers.Dense(512, activation="relu"),
-        layers.BatchNormalization(),
-        layers.Dropout(0.3),
-        layers.Dense(256, activation="relu"),
-        layers.BatchNormalization(),
-        layers.Dense(128),
-        L2Normalize()
-    ])
-
-    return model
-
-# -------------------------
-# טעינת מודל
-# -------------------------
-
-@st.cache_resource
-def load_model():
-
-    model = build_model()
-
-    model(np.zeros((1,224,224,3)))
-
-    model.load_weights(
-        "face_encoder.weights.h5",
-        by_name=True,
-        skip_mismatch=True
-    )
-
-    return model
-
-model = load_model()
-
-# -------------------------
-# preprocessing
-# -------------------------
-
-def preprocess_image(img):
-
-    img = img.convert("RGB").resize((224,224))
-    img = ImageOps.equalize(img)
-
-    arr = np.array(img).astype(np.float32)
-    arr = preprocess_input(arr)
-
-    return np.expand_dims(arr, axis=0)
-
-# -------------------------
-# cosine distance
-# -------------------------
-
-def cosine_distance(a,b):
-    return 1 - np.dot(a,b)
-
-# -------------------------
-# טעינת embeddings
-# -------------------------
-
-@st.cache_data
-def load_reference_embeddings():
-
-    embeddings = {}
-    student_images = {}
-    centroid_embeddings = {}
-
-    for student in os.listdir(REFERENCE_DIR):
-
-        student_path = os.path.join(REFERENCE_DIR, student)
-
-        if os.path.isdir(student_path):
-
-            embs = []
-            first_img = None
-
-            for file in os.listdir(student_path):
-
-                if file.lower().endswith((".jpg",".png",".jpeg")):
-
-                    path = os.path.join(student_path,file)
-
-                    img = Image.open(path)
-                    img = ImageOps.exif_transpose(img)
-
-                    if first_img is None:
-                        first_img = img
-
-                    emb = model.predict(preprocess_image(img),verbose=0)[0]
-                    emb = emb / np.linalg.norm(emb)
-
-                    embs.append(emb)
-
-            if embs:
-
-                embeddings[student] = embs
-                student_images[student] = first_img
-
-                centroid = np.mean(embs,axis=0)
-                centroid = centroid / np.linalg.norm(centroid)
-
-                centroid_embeddings[student] = centroid
-
-    return embeddings, centroid_embeddings, student_images
-
-
-reference_embeddings, centroid_embeddings, student_images = load_reference_embeddings()
-
-# -------------------------
-# גלאי פנים
-# -------------------------
-
-@st.cache_resource
-def load_face_detector():
-    return MTCNN()
-
-face_detector = load_face_detector()
 
 # -------------------------
 # חיתוך פנים
@@ -181,17 +51,20 @@ def extract_faces(image):
     image = image.convert("RGB")
     img = np.array(image)
 
-    detections = face_detector.detect_faces(img)
+    detections = detector.detect_faces(img)
 
     faces = []
 
     H,W,_ = img.shape
 
-    for det in detections:
+    for i,det in enumerate(detections):
 
         x,y,w,h = det["box"]
 
-        pad = int(max(w,h)*0.35)
+        x = max(0,x)
+        y = max(0,y)
+
+        pad = int(max(w,h)*0.45)
 
         x1 = max(0,x-pad)
         y1 = max(0,y-pad)
@@ -204,140 +77,98 @@ def extract_faces(image):
         if face.size == 0:
             continue
 
-        face = cv2.resize(face,(224,224))
+        original_size = face.shape[:2]
+
+        keypoints = det["keypoints"]
+
+        left_eye = keypoints["left_eye"]
+        right_eye = keypoints["right_eye"]
+
+        left_eye = (left_eye[0]-x1,left_eye[1]-y1)
+        right_eye = (right_eye[0]-x1,right_eye[1]-y1)
+
+        face = align_face(face,left_eye,right_eye)
+
+        face_resized = cv2.resize(face,(224,224))
+
+        face_pil = Image.fromarray(face_resized)
+
+        save_path = os.path.join(DEBUG_DIR,f"face_{i}.jpg")
+        face_pil.save(save_path)
 
         faces.append({
-            "face":Image.fromarray(face),
+            "face_original":face,
+            "face_resized":face_resized,
+            "size":original_size,
+            "path":save_path,
             "box":(x1,y1,x2-x1,y2-y1)
         })
 
     return faces,img
 
-# -------------------------
-# זיהוי פנים עם KNN
-# -------------------------
-
-def recognize_face(emb,threshold=0.35,k=5):
-
-    distances = []
-
-    for name,ref_embs in reference_embeddings.items():
-
-        for r in ref_embs:
-
-            d = cosine_distance(emb,r)
-
-            distances.append((name,d))
-
-    distances.sort(key=lambda x:x[1])
-
-    top = distances[:k]
-
-    votes = {}
-
-    for name,d in top:
-
-        if d < threshold:
-            votes[name] = votes.get(name,0)+1
-
-    if not votes:
-        return None
-
-    return max(votes,key=votes.get)
 
 # -------------------------
 # העלאת תמונה
 # -------------------------
 
-st.subheader("העלי תמונת כיתה")
-
-file = st.file_uploader("Upload class photo",type=["jpg","jpeg","png"])
+uploaded = st.file_uploader(
+    "Upload class photo",
+    type=["jpg","jpeg","png"]
+)
 
 # -------------------------
-# זיהוי
+# עיבוד
 # -------------------------
 
-if st.button("בדוק נוכחות"):
+if uploaded:
 
-    if file is None:
-        st.warning("יש להעלות תמונה")
-        st.stop()
-
-    class_image = Image.open(file)
+    class_image = Image.open(uploaded)
     class_image = ImageOps.exif_transpose(class_image)
 
     faces,original_img = extract_faces(class_image)
 
-    present_students = {}
-    recognized_faces = []
+    st.write(f"זוהו {len(faces)} פנים")
 
-    for data in faces:
+    # ציור תיבות
+    draw = cv2.cvtColor(original_img.copy(),cv2.COLOR_RGB2BGR)
 
-        img = data["face"]
-        box = data["box"]
+    for f in faces:
 
-        emb = model.predict(preprocess_image(img),verbose=0)[0]
-        emb = emb / np.linalg.norm(emb)
+        x,y,w,h = f["box"]
 
-        name = recognize_face(emb)
+        cv2.rectangle(draw,(x,y),(x+w,y+h),(0,255,0),2)
 
-        if name and name not in present_students:
-            present_students[name] = img
+    st.subheader("זיהוי פנים בתמונה")
 
-        recognized_faces.append({
-            "name":name,
-            "box":box
-        })
-
-    img_draw = cv2.cvtColor(original_img.copy(),cv2.COLOR_RGB2BGR)
-
-    for face in recognized_faces:
-
-        x,y,w,h = face["box"]
-        name = face["name"] if face["name"] else "Unknown"
-
-        cv2.rectangle(img_draw,(x,y),(x+w,y+h),(0,255,0),2)
-
-        cv2.putText(
-            img_draw,
-            name,
-            (x,y-10),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            0.8,
-            (0,255,0),
-            2
-        )
-
-    st.image(cv2.cvtColor(img_draw,cv2.COLOR_BGR2RGB),use_column_width=True)
-
-    missing_students = [s for s in STUDENT_ROSTER if s not in present_students]
+    st.image(
+        cv2.cvtColor(draw,cv2.COLOR_BGR2RGB),
+        use_column_width=True
+    )
 
     st.divider()
 
-    col1,col2 = st.columns(2)
+    st.subheader("בדיקת הפנים שנחתכו")
 
-    with col1:
+    cols = st.columns(3)
 
-        st.header(f"✅ נוכחים ({len(present_students)})")
+    for i,f in enumerate(faces):
 
-        cols = st.columns(3)
+        with cols[i % 3]:
 
-        for i,(name,img) in enumerate(present_students.items()):
+            st.write(f"Face {i}")
 
-            with cols[i%3]:
-                st.write(name)
-                st.image(img,width=120)
+            st.write("גודל לפני resize:")
+            st.write(f["size"])
 
-    with col2:
+            st.image(
+                cv2.cvtColor(f["face_original"],cv2.COLOR_BGR2RGB),
+                caption="לפני resize"
+            )
 
-        st.header(f"❌ חסרים ({len(missing_students)})")
+            st.image(
+                cv2.cvtColor(f["face_resized"],cv2.COLOR_BGR2RGB),
+                caption="אחרי resize (224x224)"
+            )
 
-        cols = st.columns(3)
-
-        for i,name in enumerate(missing_students):
-
-            with cols[i%3]:
-                st.write(name)
-
-                if name in student_images:
-                    st.image(student_images[name],width=120)
+            st.write("קובץ לבדיקה באפליקציה השנייה:")
+            st.code(f["path"])
