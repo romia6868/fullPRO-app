@@ -181,45 +181,51 @@ def extract_faces(image):
     image = image.convert("RGB")
 
     img = np.array(image)
-    img = img.astype("uint8")
-    img = np.ascontiguousarray(img)
 
-    detections = face_detector.detect_faces(img)
+    # פורמט תקין ל-MTCNN
+    img = img.astype(np.uint8)
+    img = np.ascontiguousarray(img)
 
     faces = []
 
+    try:
+        detections = face_detector.detect_faces(img)
+    except Exception as e:
+        st.error(f"MTCNN error: {e}")
+        return [], img
+
     H, W, _ = img.shape
+
     for det in detections:
 
-        x,y,w,h = det["box"]
+        x, y, w, h = det["box"]
 
-        x = max(0,x)
-        y = max(0,y)
+        x = max(0, x)
+        y = max(0, y)
 
-        pad = int(0.35 * max(w,h))
+        pad = int(0.35 * max(w, h))
 
-        x1 = max(0, x-pad)
-        y1 = max(0, y-pad)
+        x1 = max(0, x - pad)
+        y1 = max(0, y - pad)
 
-        x2 = min(W, x+w+pad)
-        y2 = min(H, y+h+pad)
+        x2 = min(W, x + w + pad)
+        y2 = min(H, y + h + pad)
 
-        face = img[y1:y2 , x1:x2]
+        face = img[y1:y2, x1:x2]
 
         if face.size == 0:
             continue
 
-        face = cv2.resize(face,(224,224))
+        face = cv2.resize(face, (224, 224))
 
         face_img = Image.fromarray(face)
 
         faces.append({
-            "face":face_img,
-            "box":(x1,y1,x2-x1,y2-y1)
+            "face": face_img,
+            "box": (x1, y1, x2 - x1, y2 - y1)
         })
 
-    return faces,img
-
+    return faces, img
 # -------------------------
 # Sidebar
 # -------------------------
