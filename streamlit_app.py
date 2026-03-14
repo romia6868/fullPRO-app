@@ -1,29 +1,42 @@
 import streamlit as st
-import numpy as np
-import cv2
-from PIL import Image, ImageOps
-from mtcnn import MTCNN
-import os
 import tensorflow as tf
 from tensorflow.keras.applications import MobileNetV2
 from tensorflow.keras import layers, models
+from PIL import Image, ImageOps
+import numpy as np
+import os
+import zipfile
+import cv2
+from mtcnn import MTCNN
 
 # -------------------------
-# הגדרות
+# הגדרות דף
 # -------------------------
 
-st.set_page_config(layout="wide")
-st.title("Face Crop + Recognition Debug")
+st.set_page_config(page_title="מערכת נוכחות חכמה", layout="wide")
+st.title("📸 מערכת נוכחות חכמה")
 
-DEBUG_DIR = "debug_faces"
-os.makedirs(DEBUG_DIR, exist_ok=True)
+# -------------------------
+# חילוץ מאגר התמונות
+# -------------------------
+
+ZIP_PATH = "My_Classmates_small.zip"
+EXTRACT_PATH = "My_Classmates"
+
+if not os.path.exists(EXTRACT_PATH):
+    with zipfile.ZipFile(ZIP_PATH, 'r') as zip_ref:
+        zip_ref.extractall(EXTRACT_PATH)
 
 REFERENCE_DIR = "My_Classmates/content/My_Classmates_small"
 
-detector = MTCNN()
+# -------------------------
+# רשימת תלמידים
+# -------------------------
+
+STUDENT_ROSTER = ['Maayan','Tomer','Roei','Zohar','Ilay']
 
 # -------------------------
-# שכבת נורמליזציה
+# שכבת נרמול
 # -------------------------
 
 class L2Normalize(tf.keras.layers.Layer):
@@ -34,7 +47,7 @@ class L2Normalize(tf.keras.layers.Layer):
 # בניית מודל
 # -------------------------
 
-def build_model():
+def build_pro_embedding():
 
     base_model = MobileNetV2(
         input_shape=(224,224,3),
@@ -49,6 +62,9 @@ def build_model():
         layers.GlobalAveragePooling2D(),
         layers.Dense(512, activation="relu"),
         layers.BatchNormalization(),
+        layers.Dropout(0.3),
+        layers.Dense(256, activation="relu"),
+        layers.BatchNormalization(),
         layers.Dense(128),
         L2Normalize()
     ])
@@ -62,7 +78,7 @@ def build_model():
 @st.cache_resource
 def load_model():
 
-    model = build_model()
+    model = build_pro_embedding()
 
     model(np.zeros((1,224,224,3)))
 
@@ -76,30 +92,18 @@ def load_model():
 
 model = load_model()
 
+st.success("המודל נטען בהצלחה")
+
 # -------------------------
 # preprocessing
 # -------------------------
 
-def preprocess(img):
+def preprocess_image(img):
 
-    img = img.resize((224,224))
+    img = img.convert("RGB").resize((224,224))
     arr = np.array(img).astype(np.float32) / 255.0
 
-    return np.expand_dims(arr,0)
-
-# pipelines להשוואה
-
-def preprocess_app1(img):
-
-    img = img.resize((224,224))
-    arr = np.array(img).astype(np.float32) / 255.0
-    return np.expand_dims(arr,0)
-
-def preprocess_app2(img):
-
-    img = img.resize((224,224))
-    arr = np.array(img).astype(np.float32) / 255.0
-    return np.expand_dims(arr,0)
+    return np.expand_dims(arr, axis=0)
 
 # -------------------------
 # cosine distance
@@ -113,7 +117,7 @@ def cosine_distance(a,b):
     return 1 - np.dot(a,b)
 
 # -------------------------
-# טעינת embeddings של המאגר
+# טעינת embeddings
 # -------------------------
 
 @st.cache_data
@@ -123,58 +127,55 @@ def load_reference_embeddings():
 
     for student in os.listdir(REFERENCE_DIR):
 
-        student_path = os.path.join(REFERENCE_DIR,student)
+        student_path = os.path.join(REFERENCE_DIR, student)
 
         if os.path.isdir(student_path):
 
-            embs = []
+            student_embeddings = []
 
             for file in os.listdir(student_path):
 
-                if file.lower().endswith(("jpg","jpeg","png")):
+                if file.lower().endswith((".jpg",".jpeg",".png")):
 
-                    path = os.path.join(student_path,file)
+                    img_path = os.path.join(student_path,file)
 
-                    img = Image.open(path)
+                    img = Image.open(img_path)
                     img = ImageOps.exif_transpose(img)
 
-                    emb = model.predict(preprocess(img),verbose=0)[0]
+                    emb = model.predict(
+                        preprocess_image(img),
+                        verbose=0
+                    )[0]
 
-                    embs.append(emb)
+                    emb = emb / np.linalg.norm(emb)
 
-            if embs:
-                embeddings[student] = embs
+                    student_embeddings.append(emb)
+
+            if student_embeddings:
+                embeddings[student] = student_embeddings
 
     return embeddings
 
+
 reference_embeddings = load_reference_embeddings()
 
+st.info(f"נמצאו {len(reference_embeddings)} תלמידים במאגר")
+
 # -------------------------
-# יישור פנים
+# גלאי פנים משופר
 # -------------------------
 
-def align_face(face,left_eye,right_eye):
+@st.cache_resource
+def load_face_detector():
 
-    dx = right_eye[0] - left_eye[0]
-    dy = right_eye[1] - left_eye[1]
-
-    angle = np.degrees(np.arctan2(dy,dx))
-
-    center = tuple(np.array(face.shape[1::-1]) / 2)
-
-    rot_mat = cv2.getRotationMatrix2D(center,angle,1.0)
-
-    aligned = cv2.warpAffine(
-        face,
-        rot_mat,
-        face.shape[1::-1],
-        flags=cv2.INTER_CUBIC
+    return MTCNN(
+        min_face_size=40
     )
 
-    return aligned
+face_detector = load_face_detector()
 
 # -------------------------
-# חיתוך פנים
+# חיתוך פנים משופר
 # -------------------------
 
 def extract_faces(image):
@@ -182,157 +183,211 @@ def extract_faces(image):
     image = image.convert("RGB")
     img = np.array(image)
 
-    detections = detector.detect_faces(img)
+    detections = face_detector.detect_faces(img)
 
     faces = []
 
-    H,W,_ = img.shape
+    H, W, _ = img.shape
 
-    for i,det in enumerate(detections):
+    for det in detections:
 
         x,y,w,h = det["box"]
 
         x = max(0,x)
         y = max(0,y)
 
-        pad = int(max(w,h)*0.35)
+        pad = int(0.35 * max(w,h))
 
-        x1 = max(0,x-pad)
-        y1 = max(0,y-pad)
+        x1 = max(0, x-pad)
+        y1 = max(0, y-pad)
 
-        x2 = min(W,x+w+pad)
-        y2 = min(H,y+h+pad)
+        x2 = min(W, x+w+pad)
+        y2 = min(H, y+h+pad)
 
         face = img[y1:y2 , x1:x2]
 
         if face.size == 0:
             continue
 
-        size_before = face.shape[:2]
+        face = cv2.resize(face,(224,224))
 
-        keypoints = det["keypoints"]
-
-        left_eye = (
-            keypoints["left_eye"][0]-x1,
-            keypoints["left_eye"][1]-y1
-        )
-
-        right_eye = (
-            keypoints["right_eye"][0]-x1,
-            keypoints["right_eye"][1]-y1
-        )
-
-        face = align_face(face,left_eye,right_eye)
-
-        face_resized = cv2.resize(face,(224,224))
-
-        face_pil = Image.fromarray(face_resized)
-
-        save_path = os.path.join(DEBUG_DIR,f"face_{i}.jpg")
-
-        face_pil.save(save_path)
+        face_img = Image.fromarray(face)
 
         faces.append({
-            "original":face,
-            "resized":face_resized,
-            "size":size_before,
-            "pil":face_pil,
-            "path":save_path,
+            "face":face_img,
             "box":(x1,y1,x2-x1,y2-y1)
         })
 
     return faces,img
 
 # -------------------------
+# Sidebar
+# -------------------------
+
+with st.sidebar:
+
+    st.header("הגדרות")
+
+    threshold = st.slider(
+        "Similarity Threshold",
+        0.0,1.0,0.22
+    )
+
+    st.write("תלמידים בכיתה")
+
+    for s in STUDENT_ROSTER:
+        st.write(s)
+
+# -------------------------
 # העלאת תמונה
 # -------------------------
 
-uploaded = st.file_uploader(
+st.subheader("העלי תמונת כיתה")
+
+class_file = st.file_uploader(
     "Upload class photo",
     type=["jpg","jpeg","png"]
 )
 
 # -------------------------
-# עיבוד
+# זיהוי
 # -------------------------
 
-if uploaded:
+if st.button("בדוק נוכחות"):
 
-    class_image = Image.open(uploaded)
+    if class_file is None:
+        st.warning("יש להעלות תמונה")
+        st.stop()
+
+    class_image = Image.open(class_file)
     class_image = ImageOps.exif_transpose(class_image)
 
-    faces,img = extract_faces(class_image)
+    faces, original_img = extract_faces(class_image)
 
     st.write(f"זוהו {len(faces)} פנים")
 
-    draw = img.copy()
+    present_students = {}
+    recognized_faces = []
 
-    for f in faces:
+    for data in faces:
 
-        x,y,w,h = f["box"]
+        img = data["face"]
+        box = data["box"]
 
-        cv2.rectangle(draw,(x,y),(x+w,y+h),(0,255,0),2)
+        emb = model.predict(
+            preprocess_image(img),
+            verbose=0
+        )[0]
 
-    st.image(draw)
+        emb = emb / np.linalg.norm(emb)
+
+        distances = []
+
+        for name, ref_embs in reference_embeddings.items():
+
+            for ref_emb in ref_embs:
+
+                dist = cosine_distance(emb, ref_emb)
+
+                distances.append((name, dist))
+
+        distances.sort(key=lambda x: x[1])
+
+        top_matches = distances[:5]
+
+        votes = {}
+        best_dist = 999
+        best_name = None
+
+        for name, dist in top_matches:
+
+            if dist < best_dist:
+                best_dist = dist
+                best_name = name
+
+            if dist < threshold:
+                votes[name] = votes.get(name,0) + 1
+
+        if votes:
+            best_name = max(votes, key=votes.get)
+        elif best_dist < threshold:
+            best_name = best_name
+        else:
+            best_name = None
+
+        if best_name and best_name not in present_students:
+            present_students[best_name] = img
+
+        recognized_faces.append({
+            "name":best_name,
+            "box":box
+        })
+
+    img_draw = original_img.copy()
+
+    for face in recognized_faces:
+
+        x,y,w,h = face["box"]
+
+        name = face["name"] if face["name"] else "Unknown"
+
+        cv2.rectangle(
+            img_draw,
+            (x,y),
+            (x+w,y+h),
+            (0,255,0),
+            2
+        )
+
+        cv2.putText(
+            img_draw,
+            name,
+            (x,y-10),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.8,
+            (0,255,0),
+            2
+        )
+
+    st.subheader("תוצאת זיהוי")
+
+    st.image(img_draw,use_column_width=True)
+
+    missing_students = [
+        s for s in STUDENT_ROSTER
+        if s not in present_students
+    ]
 
     st.divider()
 
-    cols = st.columns(3)
+    col1,col2 = st.columns(2)
 
-    for i,f in enumerate(faces):
+    with col1:
 
-        with cols[i % 3]:
+        st.header(f"✅ נוכחים ({len(present_students)})")
 
-            st.write(f"Face {i}")
+        cols = st.columns(3)
 
-            st.write("גודל לפני resize:")
-            st.write(f["size"])
+        for i,(name,img) in enumerate(present_students.items()):
 
-            st.image(f["original"],caption="לפני resize",channels="RGB")
+            with cols[i % 3]:
 
-            st.image(f["resized"],caption="אחרי resize",channels="RGB")
+                st.write(f"**{name}**")
 
-            st.write("קובץ לבדיקה:")
-            st.code(f["path"])
+                st.image(
+                    img,
+                    width=90,
+                    channels="RGB"
+                )
 
-            # -------------------------
-            # בדיקת זיהוי
-            # -------------------------
+    with col2:
 
-            emb = model.predict(
-                preprocess(f["pil"]),
-                verbose=0
-            )[0]
+        st.header(f"❌ חסרים ({len(missing_students)})")
 
-            best_name = None
-            best_dist = 999
+        if missing_students:
 
-            for name,embs in reference_embeddings.items():
+            for s in missing_students:
+                st.write(s)
 
-                for ref in embs:
-
-                    d = cosine_distance(emb,ref)
-
-                    if d < best_dist:
-                        best_dist = d
-                        best_name = name
-
-            st.write("Closest student:")
-            st.write(best_name)
-
-            st.write("distance:")
-            st.write(best_dist)
-
-            # -------------------------
-            # בדיקת pipeline
-            # -------------------------
-
-            img_test = Image.open(f["path"])
-
-            emb1 = model.predict(preprocess_app1(img_test), verbose=0)[0]
-            emb2 = model.predict(preprocess_app2(img_test), verbose=0)[0]
-
-            dist_pipeline = cosine_distance(emb1, emb2)
-
-            st.write("Pipeline distance:")
-            st.write(dist_pipeline)
+        else:
+            st.success("כולם נוכחים")
