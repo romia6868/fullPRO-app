@@ -2,11 +2,11 @@ import streamlit as st
 import tensorflow as tf
 from tensorflow.keras.applications import MobileNetV2
 from tensorflow.keras import layers, models
-from PIL import Image, ImageOps
+from PIL import Image, ImageOps, ImageDraw
 import numpy as np
 import os
 import zipfile
-
+import mediapipe as mp
 
 st.set_page_config(page_title="מערכת נוכחות חכמה", layout="wide")
 st.title("📸 מערכת נוכחות חכמה")
@@ -60,9 +60,6 @@ def cosine_distance(a, b):
     b = b / np.linalg.norm(b)
     return 1 - np.dot(a, b)
 
-# ← extract_faces מוגדרת לפני load_reference_embeddings
-import mediapipe as mp
-
 def extract_faces(image, confidence_threshold=0.7):
     img_rgb = np.array(image.convert("RGB"))
     mp_face = mp.solutions.face_detection
@@ -78,7 +75,6 @@ def extract_faces(image, confidence_threshold=0.7):
             y1 = max(0, int(box.ymin * h))
             x2 = min(w, int((box.xmin + box.width) * w))
             y2 = min(h, int((box.ymin + box.height) * h))
-            # padding 20%
             pad_x = int(0.2 * (x2 - x1))
             pad_y = int(0.2 * (y2 - y1))
             x1 = max(0, x1 - pad_x)
@@ -93,7 +89,6 @@ def extract_faces(image, confidence_threshold=0.7):
             faces.append({"face": face_img, "box": (x1, y1, x2-x1, y2-y1)})
     return faces, img_rgb
 
-# ← הגדרה אחת בלבד
 def load_reference_embeddings():
     embeddings = {}
     for student in os.listdir(REFERENCE_DIR):
@@ -126,7 +121,7 @@ st.info(f"נמצאו {len(reference_embeddings)} תלמידים במאגר")
 with st.sidebar:
     st.header("הגדרות")
     threshold = st.slider("Similarity Threshold", 0.0, 1.0, 0.26)
-    confidence = st.slider("Face Detection Confidence", 0.5, 1.0, 0.90)
+    confidence = st.slider("Face Detection Confidence", 0.5, 1.0, 0.7)
     st.write("תלמידים בכיתה")
     for s in STUDENT_ROSTER:
         st.write(s)
@@ -141,7 +136,7 @@ if st.button("בדוק נוכחות"):
 
     class_image = Image.open(class_file)
     class_image = ImageOps.exif_transpose(class_image)
-    
+
     faces, original_img_rgb = extract_faces(class_image, confidence)
     st.write(f"זוהו {len(faces)} פנים")
 
@@ -151,43 +146,39 @@ if st.button("בדוק נוכחות"):
     for i, data in enumerate(faces):
         img = data["face"]
         box = data["box"]
-        
+
         emb = model.predict(preprocess_image(img), verbose=0)[0]
         emb = emb / np.linalg.norm(emb)
-        
-        distances = []
+
+        # ממוצע מרחק לכל תלמיד
+        avg_distances = {}
         for name, ref_embs in reference_embeddings.items():
-            for ref_emb in ref_embs:
-                dist = cosine_distance(emb, ref_emb)
-                distances.append((name, dist))
-        
-        distances.sort(key=lambda x: x[1])
-        
+            dists = [cosine_distance(emb, ref_emb) for ref_emb in ref_embs]
+            avg_distances[name] = min(dists)
+
+        best_name, best_dist = min(avg_distances.items(), key=lambda x: x[1])
+        if best_dist > threshold:
+            best_name = None
+
         # DEBUG
         st.write(f"--- פנים #{i+1} ---")
         st.image(img, width=100, caption=f"פנים {i+1}")
-        for name, dist in distances[:5]:
+        for name, dist in sorted(avg_distances.items(), key=lambda x: x[1]):
             st.write(f"{name}: {dist:.4f}")
-        
-        top_matches = distances[:5]
-        votes = {}
-        for name, dist in top_matches:
-            if dist < threshold:
-                votes[name] = votes.get(name, 0) + 1
-        
-        best_name = max(votes, key=votes.get) if votes else None
-        st.write(f"זוהה כ: {best_name} (threshold={threshold})")
-        
+        st.write(f"זוהה כ: {best_name} (מרחק={best_dist:.4f}, threshold={threshold})")
+
         if best_name and best_name not in present_students:
             present_students[best_name] = img
             recognized_faces.append({"name": best_name, "box": box})
 
-    img_draw = original_img_rgb.copy()
+    # ציור תיבות עם PIL בלבד (ללא cv2)
+    img_draw = Image.fromarray(original_img_rgb)
+    draw = ImageDraw.Draw(img_draw)
     for face in recognized_faces:
         x, y, w, h = face["box"]
         name = face["name"]
-        cv2.rectangle(img_draw, (x,y), (x+w,y+h), (0,255,0), 2)
-        cv2.putText(img_draw, name, (x, y-10), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0,255,0), 2)
+        draw.rectangle([x, y, x+w, y+h], outline=(0,255,0), width=3)
+        draw.text((x, y-20), name, fill=(0,255,0))
 
     st.subheader("תוצאת זיהוי")
     st.image(img_draw, use_column_width=True)
