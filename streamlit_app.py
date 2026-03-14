@@ -10,16 +10,8 @@ import zipfile
 import cv2
 from retinaface import RetinaFace
 
-# -------------------------
-# הגדרות דף
-# -------------------------
-
 st.set_page_config(page_title="מערכת נוכחות חכמה", layout="wide")
 st.title("📸 מערכת נוכחות חכמה")
-
-# -------------------------
-# חילוץ מאגר התמונות
-# -------------------------
 
 ZIP_PATH = "My_Classmates_small.zip"
 EXTRACT_PATH = "My_Classmates"
@@ -32,17 +24,9 @@ REFERENCE_DIR = "My_Classmates/content/My_Classmates_small"
 
 STUDENT_ROSTER = ['Maayan','Tomer','Roei','Zohar','Ilay']
 
-# -------------------------
-# שכבת נרמול
-# -------------------------
-
 class L2Normalize(tf.keras.layers.Layer):
     def call(self,inputs):
         return tf.math.l2_normalize(inputs,axis=1)
-
-# -------------------------
-# מודל Embedding
-# -------------------------
 
 def build_embedding_model():
 
@@ -68,10 +52,6 @@ def build_embedding_model():
 
     return model
 
-# -------------------------
-# טעינת מודל
-# -------------------------
-
 @st.cache_resource
 def load_model():
 
@@ -91,23 +71,13 @@ model = load_model()
 
 st.success("המודל נטען")
 
-# -------------------------
-# preprocessing
-# -------------------------
-
 def preprocess_image(img):
 
     img = img.convert("RGB").resize((224,224))
-
     arr = np.array(img).astype(np.float32)
-
     arr = preprocess_input(arr)
 
     return np.expand_dims(arr,axis=0)
-
-# -------------------------
-# cosine similarity
-# -------------------------
 
 def cosine_similarity(a,b):
 
@@ -116,27 +86,16 @@ def cosine_similarity(a,b):
 
     return np.dot(a,b)
 
-# -------------------------
-# חיתוך פנים
-# -------------------------
-
 def extract_faces(image):
 
     image = image.convert("RGB")
-
     img = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
 
-    h, w = img.shape[:2]
-
-    if w < 1000:
-        scale = 1000 / w
-        img = cv2.resize(img, None, fx=scale, fy=scale)
-
-    detections = RetinaFace.detect_faces(img, threshold=0.8)
+    detections = RetinaFace.detect_faces(img)
 
     faces = []
 
-    if isinstance(detections, dict):
+    if isinstance(detections,dict):
 
         for key in detections:
 
@@ -162,7 +121,6 @@ def extract_faces(image):
                 continue
 
             face = cv2.resize(face,(224,224))
-
             face = cv2.cvtColor(face, cv2.COLOR_BGR2RGB)
 
             face_img = Image.fromarray(face)
@@ -173,9 +131,7 @@ def extract_faces(image):
             })
 
     return faces,img
-# -------------------------
-# יצירת embeddings למאגר
-# -------------------------
+
 @st.cache_data
 def load_reference_embeddings():
 
@@ -196,15 +152,12 @@ def load_reference_embeddings():
                     img = Image.open(os.path.join(student_path,file))
                     img = ImageOps.exif_transpose(img)
 
-                    # חיתוך פנים גם במאגר
                     faces,_ = extract_faces(img)
 
                     for f in faces:
 
-                        face_img = f["face"]
-
                         emb = model.predict(
-                            preprocess_image(face_img),
+                            preprocess_image(f["face"]),
                             verbose=0
                         )[0]
 
@@ -213,11 +166,7 @@ def load_reference_embeddings():
                         student_embs.append(emb)
 
             if student_embs:
-
-                mean_emb = np.mean(student_embs,axis=0)
-                mean_emb = mean_emb / np.linalg.norm(mean_emb)
-
-                embeddings[student] = mean_emb
+                embeddings[student] = student_embs
 
     return embeddings
 
@@ -225,60 +174,16 @@ reference_embeddings = load_reference_embeddings()
 
 st.info(f"נמצאו {len(reference_embeddings)} תלמידים במאגר")
 
-st.subheader("בדיקת המודל על תמונות המאגר")
-
-for student in os.listdir(REFERENCE_DIR):
-
-    student_path = os.path.join(REFERENCE_DIR, student)
-
-    if not os.path.isdir(student_path):
-        continue
-
-    for file in os.listdir(student_path):
-
-        if file.lower().endswith((".jpg",".jpeg",".png")):
-
-            img = Image.open(os.path.join(student_path,file))
-            img = ImageOps.exif_transpose(img)
-
-            emb = model.predict(
-                preprocess_image(img),
-                verbose=0
-            )[0]
-
-            emb = emb / np.linalg.norm(emb)
-
-            best_name = None
-            best_score = -1
-
-            for name, ref_emb in reference_embeddings.items():
-
-                score = cosine_similarity(emb, ref_emb)
-
-                if score > best_score:
-                    best_score = score
-                    best_name = name
-
-            st.write(student, "→", best_name, round(best_score,3))
-            break
-# -------------------------
-# Sidebar
-# -------------------------
-
 with st.sidebar:
 
     st.header("הגדרות")
 
     threshold = st.slider(
         "Similarity Threshold",
-        0.70,
+        0.7,
         1.0,
-        0.86
+        0.85
     )
-
-# -------------------------
-# העלאת תמונה
-# -------------------------
 
 st.subheader("העלי תמונת כיתה")
 
@@ -286,10 +191,6 @@ class_file = st.file_uploader(
     "Upload class photo",
     type=["jpg","jpeg","png"]
 )
-
-# -------------------------
-# זיהוי
-# -------------------------
 
 if st.button("בדוק נוכחות"):
 
@@ -322,13 +223,15 @@ if st.button("בדוק נוכחות"):
         best_name = None
         best_score = -1
 
-        for name,ref_emb in reference_embeddings.items():
+        for name,ref_list in reference_embeddings.items():
 
-            score = cosine_similarity(emb,ref_emb)
+            for ref_emb in ref_list:
 
-            if score > best_score:
-                best_score = score
-                best_name = name
+                score = cosine_similarity(emb,ref_emb)
+
+                if score > best_score:
+                    best_score = score
+                    best_name = name
 
         if best_score < threshold:
             best_name = None
@@ -338,8 +241,8 @@ if st.button("בדוק נוכחות"):
 
         recognized_faces.append({
             "name":best_name,
-            "score":best_score,
-            "box":box
+            "box":box,
+            "score":best_score
         })
 
     img_draw = original_img.copy()
@@ -387,6 +290,7 @@ if st.button("בדוק נוכחות"):
         for i,(name,img) in enumerate(present_students.items()):
 
             with cols[i % 3]:
+
                 st.write(f"**{name}**")
                 st.image(img,width=90)
 
@@ -400,5 +304,4 @@ if st.button("בדוק נוכחות"):
                 st.write(s)
 
         else:
-
             st.success("כולם נוכחים")
