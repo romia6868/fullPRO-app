@@ -1,9 +1,8 @@
 streamlit==1.32.2
 tensorflow==2.15.0
-opencv-python-headless==4.9.0.80
+opencv-python-headless
 numpy==1.26.4
 Pillow==10.2.0
 retina-face==0.0.14
 h5py==3.10.0
 setuptools==69.5.1
-mtcnn==0.1.1
