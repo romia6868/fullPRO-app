@@ -123,13 +123,20 @@ def cosine_similarity(a,b):
 def extract_faces(image):
 
     image = image.convert("RGB")
-    img = np.array(image)
 
-    detections = RetinaFace.detect_faces(img)
+    img = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
+
+    h, w = img.shape[:2]
+
+    if w < 1000:
+        scale = 1000 / w
+        img = cv2.resize(img, None, fx=scale, fy=scale)
+
+    detections = RetinaFace.detect_faces(img, threshold=0.8)
 
     faces = []
 
-    if isinstance(detections,dict):
+    if isinstance(detections, dict):
 
         for key in detections:
 
@@ -139,8 +146,7 @@ def extract_faces(image):
 
             w = x2-x1
 
-            # סינון פנים קטנות
-            if w < 80:
+            if w < 60:
                 continue
 
             pad = int(0.25*w)
@@ -157,6 +163,8 @@ def extract_faces(image):
 
             face = cv2.resize(face,(224,224))
 
+            face = cv2.cvtColor(face, cv2.COLOR_BGR2RGB)
+
             face_img = Image.fromarray(face)
 
             faces.append({
@@ -165,7 +173,6 @@ def extract_faces(image):
             })
 
     return faces,img
-
 # -------------------------
 # יצירת embeddings למאגר
 # -------------------------
