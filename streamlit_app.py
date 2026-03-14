@@ -167,14 +167,11 @@ st.info(f"נמצאו {len(reference_embeddings)} תלמידים במאגר")
 
 @st.cache_resource
 def load_face_detector():
-    try:
-        detector = MTCNN()
-        return detector
-    except Exception as e:
-        st.error(f"Face detector load failed: {e}")
-        return None
+    from mtcnn import MTCNN
+    return MTCNN()
 
 face_detector = load_face_detector()
+
 detections = face_detector.detect_faces(img)
 st.write(type(face_detector))
 # -------------------------
@@ -184,19 +181,19 @@ st.write(type(face_detector))
 def extract_faces(image):
 
     image = image.convert("RGB")
-
     img = np.array(image)
 
-    # פורמט תקין ל-MTCNN
-    img = img.astype(np.uint8)
-    img = np.ascontiguousarray(img)
-
     faces = []
+
+    # בדיקה שהגלאי נטען
+    if face_detector is None:
+        st.error("Face detector not loaded")
+        return [], img
 
     try:
         detections = face_detector.detect_faces(img)
     except Exception as e:
-        st.error(f"MTCNN error: {e}")
+        st.error(f"MTCNN detection error: {e}")
         return [], img
 
     H, W, _ = img.shape
@@ -222,12 +219,11 @@ def extract_faces(image):
             continue
 
         face = cv2.resize(face, (224, 224))
-
         face_img = Image.fromarray(face)
 
         faces.append({
             "face": face_img,
-            "box": (x1, y1, x2 - x1, y2 - y1)
+            "box": (x1, y1, x2-x1, y2-y1)
         })
 
     return faces, img
